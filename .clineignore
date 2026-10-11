@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+vendor/
+.venv/
+venv/
+
+# Build outputs and caches
+dist/
+build/
+coverage/
+.cache/
+.tmp/
+tmp/
+.cline-cache/
+.buildx-cache/
+
+# Generated and large artifacts
+*.log
+*.dump
+*.core
+*.tar
+*.tar.gz
+*.zip
+*.iso
+*.qcow2
+
+# Local state and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials/

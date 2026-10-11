@@ -1,0 +1,273 @@
+name: Deploy v2.home-security.uk
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [v2.0]
+    paths:
+      - "v2.home-security.uk/**"
+      - ".github/workflows/deploy-v2-stack.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: home-security.uk-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/v2.0'
+    runs-on: [self-hosted, fedora]
+    env:
+      CONTAINER_HOST: unix:///run/user/1000/podman/podman.sock
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: v2.home-security.uk
+    steps:
+      - name: Checkout v2.0
+        uses: actions/checkout@v4
+        with:
+          ref: v2.0
+          clean: true
+
+      - name: Check runtime prerequisites
+        run: |
+          set -euo pipefail
+          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+          require_command() {
+            local name="$1" path
+            if ! path="$(command -v "$name")"; then
+              echo "::error::Required command is not installed or not on PATH: $name"
+              return 1
+            fi
+            echo "Found $name: $path"
+          }
+
+          require_command podman
+          require_command podman-compose
+          require_command curl
+          require_command python3
+
+          if [[ ! -r containers-policy.json ]]; then
+            echo "::error::Repository-scoped containers-policy.json is missing or unreadable."
+            exit 1
+          fi
+
+          if ! podman_error="$(podman info 2>&1 >/dev/null)"; then
+            echo "::error::Podman is installed but 'podman info' failed for runner user $(id -un). Check the runner user's Podman storage/runtime access."
+            printf '%s\n' "$podman_error" >&2
+            exit 1
+          fi
+          if [[ -e .env ]]; then
+            echo "::error::.env already exists in the deployment directory; refusing to overwrite it. Remove it or adjust the workflow cleanup before retrying."
+            exit 1
+          fi
+
+      - name: Create deployment environment file
+        run: |
+          set -euo pipefail
+          install -m 600 .env.example .env
+          echo "DEPLOY_ENV_CREATED=true" >> "$GITHUB_ENV"
+          openobserve_user="$(sed -n 's/^OPENOBSERVE_USER=//p' .env | tail -n 1)"
+          if [[ ! "$openobserve_user" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
+            echo "::error::OPENOBSERVE_USER must be a valid email address (for example admin@example.com); configure it in .env.example or the deployment environment." >&2
+            exit 1
+          fi
+
+      - name: Validate Compose configuration
+        run: podman-compose -f compose.yaml config >/dev/null
+
+      - name: Pull container images
+        run: |
+          set -euo pipefail
+          env_value() {
+            local key="$1" fallback="$2" value
+            value="$(awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); value = $0 } END { print value }' .env)"
+            printf '%s' "${value:-$fallback}"
+          }
+          images=(
+            "public.ecr.aws/zinclabs/openobserve:$(env_value OPENOBSERVE_TAG latest)"
+            "docker.io/ollama/ollama:$(env_value OLLAMA_TAG latest)"
+            "cr.fluentbit.io/fluent/fluent-bit:$(env_value FLUENT_BIT_TAG 3.2)"
+          )
+          # Pull independent images with a bounded concurrency of five.
+          # Waiting as each batch completes preserves the pull exit status.
+          max_parallel_pulls=5
+          pids=()
+          pull_failed=false
+          for image in "${images[@]}"; do
+            # The runner executes inside a Toolbox container with its own user
+            # namespace, where rootless Podman cannot start. host-exec.sh runs
+            # the pull in the host namespace, into the store the API service uses.
+            ./scripts/host-exec.sh env -u CONTAINER_HOST podman pull --signature-policy "$GITHUB_WORKSPACE/v2.home-security.uk/containers-policy.json" "$image" &
+            pids+=("$!")
+            if (( ${#pids[@]} == max_parallel_pulls )); then
+              for pid in "${pids[@]}"; do
+                if ! wait "$pid"; then
+                  pull_failed=true
+                fi
+              done
+              pids=()
+            fi
+          done
+          for pid in "${pids[@]}"; do
+            if ! wait "$pid"; then
+              pull_failed=true
+            fi
+          done
+          if [[ "$pull_failed" == true ]]; then
+            echo "::error::One or more container image pulls failed."
+            exit 1
+          fi
+
+      - name: Deploy containers
+        run: |
+          set -euo pipefail
+          # Build the worker into containers-storage first, then start services
+          # with building disabled so Compose must use this trusted local tag.
+          # Build in the host namespace (see the pull step) so the signature
+          # policy file is applied to the image commit.
+          ./scripts/host-exec.sh env -u CONTAINER_HOST podman build --signature-policy "$GITHUB_WORKSPACE/v2.home-security.uk/containers-policy.json" -t localhost/minimal-ai-security-worker:1.0 ./security-ai
+          podman-compose -f compose.yaml up -d --no-build
+
+      - name: Wait for core services
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          wait_for() {
+            local description="$1" attempts="$2" delay="$3"
+            shift 3
+            for ((attempt = 1; attempt <= attempts; attempt++)); do
+              if "$@"; then
+                echo "Ready: $description"
+                return 0
+              fi
+              echo "Waiting for $description ($attempt/$attempts)..."
+              sleep "$delay"
+            done
+            echo "::error::Timed out waiting for $description."
+            return 1
+          }
+
+          required_containers=(openobserve ollama fluent-bit security-ai)
+          for name in "${required_containers[@]}"; do
+            if ! podman container exists "$name"; then
+              echo "::error::Required container is missing: $name"
+              podman-compose -f compose.yaml ps || true
+              exit 1
+            fi
+            wait_for "$name container running" 30 5 bash -c '[[ "$(podman inspect --format "{{.State.Status}}" "$1" 2>/dev/null)" == running ]]' _ "$name" || {
+              podman logs --tail 100 "$name" || true
+              exit 1
+            }
+          done
+
+          openobserve_port="$(awk -F= '$1 == "OPENOBSERVE_PORT" { sub(/^[^=]*=/, ""); value = $0 } END { print value }' .env)"
+          openobserve_port="${openobserve_port:-5080}"
+          openobserve_ready() {
+            curl --fail --silent --show-error --max-time 15 "http://127.0.0.1:${openobserve_port}/healthz" >/dev/null
+          }
+          wait_for "OpenObserve HTTP health endpoint" 30 5 openobserve_ready
+
+          ollama_ready() {
+            podman exec ollama ollama list >/dev/null 2>&1
+          }
+          wait_for "Ollama API" 30 5 ollama_ready
+
+      - name: Ensure configured Ollama model is available
+        timeout-minutes: 60
+        run: |
+          set -euo pipefail
+          model="$(awk -F= '$1 == "OLLAMA_MODEL" { sub(/^[^=]*=/, ""); value = $0 } END { print value }' .env)"
+          model="${model:-qwen2.5:3b}"
+          if podman exec ollama ollama show "$model" >/dev/null 2>&1; then
+            echo "Ollama model already present: $model"
+          else
+            podman exec ollama ollama pull "$model"
+          fi
+
+      - name: Health check containers
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+
+          wait_for() {
+            local description="$1" attempts="$2" delay="$3"
+            shift 3
+            for ((attempt = 1; attempt <= attempts; attempt++)); do
+              if "$@"; then
+                echo "Ready: $description"
+                return 0
+              fi
+              echo "Waiting for $description ($attempt/$attempts)..."
+              sleep "$delay"
+            done
+            echo "::error::Timed out waiting for $description."
+            return 1
+          }
+
+          # Fail if a required container is stopped, or reports unhealthy when
+          # its image defines a healthcheck. "not-configured" is informational.
+          required_containers=(openobserve ollama fluent-bit security-ai)
+          for name in "${required_containers[@]}"; do
+            if ! podman container exists "$name"; then
+              echo "::error::Required container is missing: $name"
+              podman-compose -f compose.yaml ps || true
+              exit 1
+            fi
+            wait_for "$name container running" 30 5 bash -c '[[ "$(podman inspect --format "{{.State.Status}}" "$1" 2>/dev/null)" == running ]]' _ "$name" || {
+              podman logs --tail 100 "$name" || true
+              exit 1
+            }
+            state="$(podman inspect --format '{{.State.Status}}' "$name")"
+            health="$(podman inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}not-configured{{end}}' "$name" 2>/dev/null || echo unknown)"
+            echo "$name: state=$state health=$health"
+            if [[ "$health" == "unhealthy" ]]; then
+              echo "::error::Container $name reports unhealthy."
+              podman logs --tail 100 "$name" || true
+              exit 1
+            fi
+          done
+
+          # Check OpenObserve's HTTP endpoint.
+          openobserve_port="$(awk -F= '$1 == "OPENOBSERVE_PORT" { sub(/^[^=]*=/, ""); value = $0 } END { print value }' .env)"
+          openobserve_port="${openobserve_port:-5080}"
+          openobserve_ready() {
+            curl --fail --silent --show-error --max-time 15 "http://127.0.0.1:${openobserve_port}/healthz" >/dev/null
+          }
+          wait_for "OpenObserve HTTP health endpoint" 30 5 openobserve_ready
+
+          # Verify Ollama and the configured model after its health-gated pull.
+          podman exec ollama ollama list
+          model="$(sed -n 's/^OLLAMA_MODEL=//p' .env | tail -n 1)"
+          model="${model:-qwen2.5:3b}"
+          podman exec ollama ollama show "$model" >/dev/null
+
+          # Verify Fluent Bit and the AI worker are alive. The worker reads
+          # security_logs from OpenObserve; host log files are mounted only in
+          # Fluent Bit and are not direct worker inputs.
+          podman top fluent-bit
+          podman logs --tail 100 security-ai | grep -F "security-ai worker started" >/dev/null || {
+            echo "::error::AI worker startup marker not found in recent logs."
+            podman logs --tail 100 security-ai || true
+            exit 1
+          }
+
+          echo "All Compose services, OpenObserve, Ollama, Fluent Bit, and AI worker checks passed."
+          podman-compose -f compose.yaml ps
+
+      - name: Collect diagnostics on failure
+        if: failure()
+        run: |
+          set +e
+          podman-compose -f compose.yaml ps
+          for name in openobserve ollama fluent-bit security-ai; do
+            echo "===== $name ====="
+            podman logs --tail 100 "$name"
+          done
+      - name: Remove temporary environment file
+        if: always() && env.DEPLOY_ENV_CREATED == 'true'
+        run: rm -f .env

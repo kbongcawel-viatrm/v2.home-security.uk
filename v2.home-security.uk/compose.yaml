@@ -1,0 +1,98 @@
+name: v2.home-security.uk
+
+services:
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:${OPENOBSERVE_TAG:-latest}
+    container_name: openobserve
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${OPENOBSERVE_PORT:-5080}:5080/tcp"
+    environment:
+      ZO_ROOT_USER_EMAIL: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
+      ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
+      ZO_DATA_DIR: /data
+      ZO_LOCAL_MODE: "true"
+      TZ: ${TZ:-Asia/Manila}
+    volumes:
+      - openobserve_data:/data
+    networks:
+      - security
+    stop_grace_period: 30s
+
+  ollama:
+    image: docker.io/ollama/ollama:${OLLAMA_TAG:-latest}
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - security
+    # Deliberately not published to the host; internal services use ollama:11434.
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  fluent-bit:
+    image: cr.fluentbit.io/fluent/fluent-bit:${FLUENT_BIT_TAG:-3.2}
+    container_name: fluent-bit
+    restart: unless-stopped
+    depends_on:
+      openobserve:
+        condition: service_started
+    environment:
+      OPENOBSERVE_USER: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
+      OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
+      OPENOBSERVE_ORG: ${OPENOBSERVE_ORG:-default}
+      TZ: ${TZ:-Asia/Manila}
+    volumes:
+      - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,Z
+      - ${SURICATA_LOG_DIR:-/var/log/suricata}:/var/log/suricata:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      - fluent_bit_state:/fluent-bit/state
+    networks:
+      - security
+    command: ["-c", "/fluent-bit/etc/fluent-bit.conf"]
+    stop_grace_period: 30s
+
+  security-ai:
+    build:
+      context: ./security-ai
+    image: localhost/minimal-ai-security-worker:1.0
+    container_name: security-ai
+    restart: unless-stopped
+    depends_on:
+      openobserve:
+        condition: service_started
+      ollama:
+        condition: service_healthy
+    environment:
+      OPENOBSERVE_URL: http://openobserve:5080
+      OPENOBSERVE_USER: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
+      OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
+      OPENOBSERVE_ORG: ${OPENOBSERVE_ORG:-default}
+      OPENOBSERVE_QUERY_INTERVAL_MINUTES: ${OPENOBSERVE_QUERY_INTERVAL_MINUTES:-5}
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      ANALYSIS_INTERVAL_SECONDS: ${ANALYSIS_INTERVAL_SECONDS:-300}
+      MAX_EVENTS_PER_BATCH: ${MAX_EVENTS_PER_BATCH:-30}
+      TZ: ${TZ:-Asia/Manila}
+    volumes:
+      - security_ai_state:/state
+    networks:
+      - security
+    stop_grace_period: 30s
+
+networks:
+  security:
+    driver: bridge
+
+volumes:
+  openobserve_data:
+  ollama_data:
+  fluent_bit_state:
+  security_ai_state:
