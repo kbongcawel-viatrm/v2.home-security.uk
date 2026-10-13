@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: [ubuntu-latest]
+    runs-on: [self-hosted, fedora]
     env:
       CONTAINER_HOST: unix:///run/user/1000/podman/podman.sock
     timeout-minutes: 45
@@ -44,7 +44,7 @@ jobs:
             fi
             echo "Found $name: $path"
           }
-
+          
           require_command podman
           require_command podman-compose
           require_command curl
