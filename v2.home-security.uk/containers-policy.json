@@ -4,10 +4,13 @@
   ],
   "transports": {
     "containers-storage": {
-      "[overlay@/var/home/kim/.local/share/containers/storage]": [
+      "[overlay@/var/home/kim/.local/share/containers/storage+/run/user/1000/containers]": [
         { "type": "insecureAcceptAnything" }
       ],
-      "[overlay@/var/home/kbongcawel/.local/share/containers/storage]": [
+      "[overlay@/var/home/kbongcawel/.local/share/containers/storage+/run/user/*/containers]": [
+        { "type": "insecureAcceptAnything" }
+      ],
+      "[overlay@/var/home/*/.local/share/containers/storage+/run/user/*/containers]": [
         { "type": "insecureAcceptAnything" }
       ],
       "[overlay@/var/home/*/.local/share/containers/storage]": [
@@ -28,6 +31,9 @@
         { "type": "insecureAcceptAnything" }
       ],
       "cr.fluentbit.io/fluent/fluent-bit": [
+        { "type": "insecureAcceptAnything" }
+      ],
+      "localhost/*": [
         { "type": "insecureAcceptAnything" }
       ]
     }

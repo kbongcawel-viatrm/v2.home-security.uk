@@ -16,8 +16,20 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST_EXEC="$SCRIPT_DIR/host-exec.sh"
 
+# Find the project root (where containers-policy.json lives)
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+POLICY_FILE="$PROJECT_ROOT/containers-policy.json"
+
+# Use our custom containers policy to allow local storage and our images
+# This overrides the host's Secureblue default policy (which is too strict)
+if [[ -r "$POLICY_FILE" ]]; then
+    export CONTAINERS_POLICY_JSON="$POLICY_FILE"
+    # Also set the storage policy path for older Podman versions
+    export CONTAINERS_SIGNATURE_POLICY_PATH="$POLICY_FILE"
+fi
+
 # Podman socket path on the host (for rootless user)
-PODMAN_SOCKET="unix:///run/user/\$(id -u)/podman/podman.sock"
+PODMAN_SOCKET="unix:///run/user/$(id -u)/podman/podman.sock"
 
 # Check if we're inside Toolbox
 if [[ -e /run/.toolboxenv ]]; then
