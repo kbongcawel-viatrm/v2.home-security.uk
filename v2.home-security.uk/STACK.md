@@ -55,8 +55,9 @@ Security changes are deployed by a **two-stage workflow**:
 
 **Required GitHub Secrets:**
 - `TARGET_HOST` - IP or hostname of the Fedora target host
-- `TARGET_USER` - SSH user on target host (with sudo access)
+- `TARGET_USER` - SSH user on target host
 - `TARGET_SSH_KEY` - SSH private key for authentication
+- `TARGET_SUDO_PASSWORD` - Sudo password for privilege escalation (--become)
 
 ### Ansible Playbooks
 
@@ -84,9 +85,10 @@ No self-hosted runner is required for security deployments.
 
 **Target Host Requirements:**
 - SSH server running and accessible
-- User with sudo access (NOPASSWD recommended)
+- User with sudo access (password stored in TARGET_SUDO_PASSWORD secret)
 - Suricata installed with `/var/lib/suricata/rules/` directory
 - firewalld installed and active
+- No sudoers modifications needed - uses password-based sudo
 
 A human must review artifacts, commit them to the repository, and trigger the
 workflow. The worker never executes changes directly.

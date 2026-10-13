@@ -75,8 +75,9 @@ Configure these in **Settings → Secrets and variables → Actions**:
 | Secret | Description | Example |
 |--------|-------------|---------|
 | `TARGET_HOST` | Target Fedora host IP/hostname | `192.168.1.100` |
-| `TARGET_USER` | SSH user with sudo access | `kim` |
+| `TARGET_USER` | SSH user | `kim` |
 | `TARGET_SSH_KEY` | SSH private key | `-----BEGIN OPENSSH...` |
+| `TARGET_SUDO_PASSWORD` | Sudo password for --become | `your-sudo-password` |
 
 ### Generating SSH Key
 

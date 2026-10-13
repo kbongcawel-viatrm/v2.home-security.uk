@@ -50,8 +50,9 @@ The workflow runs on `ubuntu-latest` and connects to the target host via SSH.
 
 **Required GitHub Secrets:**
 - `TARGET_HOST` - IP or hostname of the Fedora target host
-- `TARGET_USER` - SSH user on target host (with sudo access)
+- `TARGET_USER` - SSH user on target host
 - `TARGET_SSH_KEY` - SSH private key for authentication
+- `TARGET_SUDO_PASSWORD` - Sudo password for privilege escalation (--become)
 
 **Required GitHub Variables (optional):**
 - `TARGET_SSH_PORT` - SSH port (default: 22)
@@ -153,10 +154,15 @@ TARGET_SSH_KEY=-----BEGIN...     # SSH private key (ed25519 recommended)
 
 **Target Host Requirements:**
 - SSH server running (`sudo systemctl enable --now sshd`)
-- User with sudo access (configure NOPASSWD in /etc/sudoers.d/)
+- User with sudo access (password stored in GitHub secret, no sudoers changes needed)
 - Suricata installed: `sudo dnf install suricata`
 - firewalld installed and active: `sudo systemctl enable --now firewalld`
 - Python 3 on target (for Ansible modules)
+
+**Privilege Escalation:**
+- Uses `--become` with password authentication
+- Password passed via `ANSIBLE_BECOME_PASSWORD` environment variable
+- No NOPASSWD sudo configuration required on target host
 
 **Playbook Host Target:**
 - Playbooks use `hosts: target` (not localhost)

@@ -10,12 +10,14 @@ name: Apply Security Changes (GitHub-Hosted)
 # The GitHub-hosted runner connects to the target host via SSH using:
 #   - SSH private key stored in GitHub secrets (TARGET_SSH_KEY)
 #   - Target host address stored in GitHub secrets (TARGET_HOST)
-#   - Target user stored in GitHub secrets (TARGET_USER, default: current user)
+#   - Target user stored in GitHub secrets (TARGET_USER)
+#   - Sudo password stored in GitHub secrets (TARGET_SUDO_PASSWORD)
 #
 # Required GitHub Secrets:
-#   TARGET_HOST     - IP or hostname of the Fedora target host
-#   TARGET_USER     - SSH user on target host (with sudo access)
-#   TARGET_SSH_KEY  - SSH private key for authentication
+#   TARGET_HOST         - IP or hostname of the Fedora target host
+#   TARGET_USER         - SSH user on target host
+#   TARGET_SSH_KEY      - SSH private key for authentication
+#   TARGET_SUDO_PASSWORD - Sudo password for privilege escalation (--become)
 #
 # Required GitHub Variables (optional):
 #   TARGET_SSH_PORT - SSH port (default: 22)
@@ -88,6 +90,8 @@ env:
   TARGET_USER: ${{ secrets.TARGET_USER }}
   TARGET_PORT: ${{ vars.TARGET_SSH_PORT || '22' }}
   ANSIBLE_HOST_KEY_CHECKING: "False"
+  # Pass sudo password via environment variable for --become
+  ANSIBLE_BECOME_PASSWORD: ${{ secrets.TARGET_SUDO_PASSWORD }}
 
 jobs:
   validate:
@@ -181,6 +185,10 @@ jobs:
             echo "::error::TARGET_SSH_KEY secret is not set"
             exit 1
           fi
+          if [[ -z "${{ secrets.TARGET_SUDO_PASSWORD }}" ]]; then
+            echo "::error::TARGET_SUDO_PASSWORD secret is not set"
+            exit 1
+          fi
           echo "Target: $TARGET_USER@$TARGET_HOST:$TARGET_PORT"
 
       - name: Set up SSH key
@@ -202,16 +210,6 @@ jobs:
             echo "::error::SSH connection failed"
             echo "ssh_ok=false" >> "$GITHUB_OUTPUT"
             exit 1
-          fi
-
-      - name: Test sudo access on target
-        run: |
-          if ssh -o StrictHostKeyChecking=no \
-             -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" \
-             "sudo -n true 2>/dev/null && echo 'sudo NOPASSWD: OK' || echo 'sudo requires password'"; then
-            echo "Sudo check completed"
-          else
-            echo "::warning::Sudo check failed - ensure NOPASSWD is configured for --become"
           fi
 
       - name: Verify target host prerequisites
@@ -244,10 +242,18 @@ jobs:
           [[ -d /var/lib/suricata/rules ]] && echo "/var/lib/suricata/rules: exists" || echo "/var/lib/suricata/rules: NOT FOUND"
           [[ -d /etc/suricata ]] && echo "/etc/suricata: exists" || echo "/etc/suricata: NOT FOUND"
           [[ -d /var/log/suricata ]] && echo "/var/log/suricata: exists" || echo "/var/log/suricata: NOT FOUND"
-          
-          # Check write access
-          sudo -n test -w /var/lib/suricata/rules 2>/dev/null && echo "/var/lib/suricata/rules: writable" || echo "/var/lib/suricata/rules: not writable or sudo required"
           EOF
+
+      - name: Test sudo access on target
+        run: |
+          echo "=== Testing sudo access ==="
+          # Test sudo with password via SSH
+          if ssh -o StrictHostKeyChecking=no -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" \
+             "echo '${{ secrets.TARGET_SUDO_PASSWORD }}' | sudo -S -k true 2>/dev/null && echo 'Sudo access: OK' || echo 'Sudo access: FAILED'"; then
+            echo "Sudo check completed"
+          else
+            echo "::warning::Sudo test had issues - verify password is correct"
+          fi
 
   deploy-suricata:
     name: Deploy Suricata rules (via SSH)
@@ -315,16 +321,17 @@ jobs:
         if: ${{ inputs.simulate == false }}
         run: |
           echo "=== Verifying Suricata deployment ==="
-          ssh -o StrictHostKeyChecking=no -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" << 'EOF'
-          echo "Rules file:"
-          sudo ls -la /var/lib/suricata/rules/suricata.rules
-          echo ""
-          echo "Suricata status:"
-          sudo systemctl status suricata --no-pager | head -10
-          echo ""
-          echo "Recent logs:"
-          sudo tail -5 /var/log/suricata/suricata.log 2>/dev/null || echo "No suricata.log found"
-          EOF
+          ssh -o StrictHostKeyChecking=no -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" \
+            "echo '${{ secrets.TARGET_SUDO_PASSWORD }}' | sudo -S -k bash -c '
+              echo \"Rules file:\"
+              ls -la /var/lib/suricata/rules/suricata.rules
+              echo \"\"
+              echo \"Suricata status:\"
+              systemctl status suricata --no-pager | head -10
+              echo \"\"
+              echo \"Recent logs:\"
+              tail -5 /var/log/suricata/suricata.log 2>/dev/null || echo \"No suricata.log found\"
+            '"
 
       - name: Simulation completed
         if: ${{ inputs.simulate != false }}
@@ -410,16 +417,17 @@ jobs:
         if: ${{ inputs.simulate == false }}
         run: |
           echo "=== Verifying firewalld changes ==="
-          ssh -o StrictHostKeyChecking=no -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" << 'EOF'
-          echo "Active zones:"
-          sudo firewall-cmd --get-active-zones
-          echo ""
-          echo "Rich rules:"
-          sudo firewall-cmd --list-rich-rules
-          echo ""
-          echo "Firewalld status:"
-          sudo systemctl status firewalld --no-pager | head -5
-          EOF
+          ssh -o StrictHostKeyChecking=no -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" \
+            "echo '${{ secrets.TARGET_SUDO_PASSWORD }}' | sudo -S -k bash -c '
+              echo \"Active zones:\"
+              firewall-cmd --get-active-zones
+              echo \"\"
+              echo \"Rich rules:\"
+              firewall-cmd --list-rich-rules
+              echo \"\"
+              echo \"Firewalld status:\"
+              systemctl status firewalld --no-pager | head -5
+            '"
 
       - name: Simulation completed
         if: ${{ inputs.simulate != false }}
