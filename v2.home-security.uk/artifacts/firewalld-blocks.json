@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "generated_by": "manual-setup",
+  "generated_at": "2026-10-13T00:00:00Z",
+  "description": "Firewalld block requests for GitHub Actions deployment",
+  "blocks": [
+    {
+      "block_type": "ip",
+      "target": "192.0.2.100",
+      "zone": "public",
+      "reason": "TEST BLOCK: Documentation range IP (RFC 5737) - Safe to test",
+      "cve_ids": [],
+      "attack_types": ["test"],
+      "mitre_techniques": [],
+      "event_refs": ["test-block-001"],
+      "confidence": "high",
+      "expires_at": "2026-10-14T00:00:00Z"
+    }
+  ]
+}
