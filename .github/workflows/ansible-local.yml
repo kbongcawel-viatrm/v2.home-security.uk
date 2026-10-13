@@ -29,7 +29,6 @@ defaults:
 
 jobs:
   apply-reviewed-playbooks:
-    working-directory: v2.home-security.uk
     # Configure this label on the Fedora host's self-hosted Actions runner.
     runs-on: [self-hosted, linux, fedora]
     environment: ansible-local-apply
@@ -40,12 +39,14 @@ jobs:
 
       - name: Confirm local Ansible is available
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           command -v ansible-playbook
           ansible-playbook --version
 
       - name: Require reviewed Suricata rules artifact
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           test -s artifacts/suricata.rules || {
             echo "Missing artifacts/suricata.rules; add and review the generated rules before running this workflow." >&2
@@ -58,6 +59,7 @@ jobs:
 
       - name: Syntax-check every reviewed playbook before applying any
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           mapfile -d '' playbooks < <(find ansible/playbooks -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 | sort -z)
           if ((${#playbooks[@]} == 0)); then
@@ -71,6 +73,7 @@ jobs:
 
       - name: Preview all plays in check mode
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           mapfile -d '' playbooks < <(find ansible/playbooks -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 | sort -z)
           for playbook in "${playbooks[@]}"; do
@@ -81,6 +84,7 @@ jobs:
       - name: Apply reviewed plays locally
         if: ${{ inputs.simulate == false }}
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           mapfile -d '' playbooks < <(find ansible/playbooks -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 | sort -z)
           for playbook in "${playbooks[@]}"; do

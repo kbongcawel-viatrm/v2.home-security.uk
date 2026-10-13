@@ -99,7 +99,6 @@ env:
 
 jobs:
   validate:
-    working-directory: v2.home-security.uk
     name: Validate playbooks and artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -117,6 +116,7 @@ jobs:
 
       - name: Install Ansible and dependencies
         run: |
+          cd v2.home-security.uk || exit 1
           python3 -m pip install --upgrade pip
           python3 -m pip install ansible-core PyYAML
           ansible-playbook --version
@@ -124,6 +124,7 @@ jobs:
       - name: Check for artifacts
         id: check-artifacts
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           suricata_present="false"
           firewalld_present="false"
@@ -147,6 +148,7 @@ jobs:
 
       - name: Syntax-check all playbooks
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           mapfile -d '' playbooks < <(find ansible/playbooks -type f \( -name '*.yml' -o -name '*.yaml' \) ! -name '.gitkeep' -print0 | sort -z)
           if ((${#playbooks[@]} == 0)); then
@@ -169,7 +171,6 @@ jobs:
           retention-days: 1
 
   setup-ssh:
-    working-directory: v2.home-security.uk
     name: Set up SSH connection to target host
     needs: validate
     runs-on: ubuntu-latest
@@ -179,6 +180,7 @@ jobs:
     steps:
       - name: Check required secrets
         run: |
+          cd v2.home-security.uk || exit 1
           if [[ -z "$TARGET_HOST" ]]; then
             echo "::error::TARGET_HOST secret is not set"
             exit 1
@@ -199,6 +201,7 @@ jobs:
 
       - name: Set up hardened SSH
         run: |
+          cd v2.home-security.uk || exit 1
           ./scripts/setup-ssh.sh \
             "${{ secrets.TARGET_SSH_KEY }}" \
             "$TARGET_HOST" \
@@ -208,6 +211,7 @@ jobs:
       - name: Test SSH connection
         id: test-ssh
         run: |
+          cd v2.home-security.uk || exit 1
           if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
              -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" "echo 'SSH connection successful'"; then
             echo "ssh_ok=true" >> "$GITHUB_OUTPUT"
@@ -219,6 +223,7 @@ jobs:
 
       - name: Verify target host prerequisites
         run: |
+          cd v2.home-security.uk || exit 1
           echo "=== Checking target host prerequisites ==="
           ssh -o StrictHostKeyChecking=no -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" << 'EOF'
           set -e
@@ -251,6 +256,7 @@ jobs:
 
       - name: Test sudo access on target
         run: |
+          cd v2.home-security.uk || exit 1
           echo "=== Testing sudo access ==="
           # Test sudo with password via SSH
           if ssh -o StrictHostKeyChecking=no -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" \
@@ -261,7 +267,6 @@ jobs:
           fi
 
   deploy-suricata:
-    working-directory: v2.home-security.uk
     name: Deploy Suricata rules (via SSH)
     needs: [validate, setup-ssh]
     if: needs.validate.outputs.suricata_rules_present == 'true' && needs.setup-ssh.outputs.ssh_ok == 'true' && (inputs.deploy_suricata == true || inputs.simulate == false)
@@ -280,11 +285,13 @@ jobs:
 
       - name: Set up Python and Ansible
         run: |
+          cd v2.home-security.uk || exit 1
           python3 -m pip install --upgrade pip
           python3 -m pip install ansible-core PyYAML
 
       - name: Set up hardened SSH
         run: |
+          cd v2.home-security.uk || exit 1
           ./scripts/setup-ssh.sh \
             "${{ secrets.TARGET_SSH_KEY }}" \
             "$TARGET_HOST" \
@@ -293,6 +300,7 @@ jobs:
 
       - name: Create Ansible inventory
         run: |
+          cd v2.home-security.uk || exit 1
           cat > inventory.ini << EOF
           [target]
           $TARGET_HOST ansible_host=$TARGET_HOST ansible_user=$TARGET_USER ansible_port=$TARGET_PORT ansible_ssh_private_key_file=~/.ssh/id_ed25519
@@ -301,6 +309,7 @@ jobs:
 
       - name: Check mode preview (dry-run)
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           echo "=== Check mode preview: deploy-suricata-rules.yml ==="
           ansible-playbook \
@@ -313,6 +322,7 @@ jobs:
       - name: Deploy Suricata rules and reload Suricata
         if: ${{ inputs.simulate == false }}
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           echo "=== Applying: deploy-suricata-rules.yml ==="
           ansible-playbook \
@@ -326,6 +336,7 @@ jobs:
       - name: Verify deployment
         if: ${{ inputs.simulate == false }}
         run: |
+          cd v2.home-security.uk || exit 1
           echo "=== Verifying Suricata deployment ==="
           ssh -o StrictHostKeyChecking=no -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" \
             "echo '${{ secrets.TARGET_SUDO_PASSWORD }}' | sudo -S -k bash -c '
@@ -344,7 +355,6 @@ jobs:
         run: echo "Simulation passed; apply step was intentionally skipped."
 
   deploy-firewalld:
-    working-directory: v2.home-security.uk
     name: Apply firewalld changes (via SSH)
     needs: [validate, setup-ssh]
     if: (needs.validate.outputs.firewalld_changes_present == 'true' || inputs.blocked_ip != '') && needs.setup-ssh.outputs.ssh_ok == 'true' && (inputs.deploy_firewalld == true || inputs.simulate == false)
@@ -363,11 +373,13 @@ jobs:
 
       - name: Set up Python and Ansible
         run: |
+          cd v2.home-security.uk || exit 1
           python3 -m pip install --upgrade pip
           python3 -m pip install ansible-core PyYAML
 
       - name: Set up hardened SSH
         run: |
+          cd v2.home-security.uk || exit 1
           ./scripts/setup-ssh.sh \
             "${{ secrets.TARGET_SSH_KEY }}" \
             "$TARGET_HOST" \
@@ -376,6 +388,7 @@ jobs:
 
       - name: Create Ansible inventory
         run: |
+          cd v2.home-security.uk || exit 1
           cat > inventory.ini << EOF
           [target]
           $TARGET_HOST ansible_host=$TARGET_HOST ansible_user=$TARGET_USER ansible_port=$TARGET_PORT ansible_ssh_private_key_file=~/.ssh/id_ed25519
@@ -385,6 +398,7 @@ jobs:
       - name: Block IP via Ansible (dry-run)
         if: ${{ inputs.blocked_ip != '' }}
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           echo "=== Check mode preview: block-ip-firewalld.yml ==="
           ansible-playbook \
@@ -398,6 +412,7 @@ jobs:
       - name: Block IP via Ansible (apply)
         if: ${{ inputs.simulate == false && inputs.blocked_ip != '' }}
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           echo "=== Applying: block-ip-firewalld.yml ==="
           ansible-playbook \
@@ -411,18 +426,21 @@ jobs:
       - name: Process blocks from artifacts (dry-run)
         if: needs.validate.outputs.firewalld_changes_present == 'true'
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           python3 scripts/process-firewalld-blocks.py --check --inventory inventory.ini
 
       - name: Process blocks from artifacts (apply)
         if: ${{ inputs.simulate == false && needs.validate.outputs.firewalld_changes_present == 'true' }}
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           python3 scripts/process-firewalld-blocks.py --inventory inventory.ini
 
       - name: Verify firewalld changes
         if: ${{ inputs.simulate == false }}
         run: |
+          cd v2.home-security.uk || exit 1
           echo "=== Verifying firewalld changes ==="
           ssh -o StrictHostKeyChecking=no -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" \
             "echo '${{ secrets.TARGET_SUDO_PASSWORD }}' | sudo -S -k bash -c '
@@ -441,7 +459,6 @@ jobs:
         run: echo "Simulation passed; apply steps were intentionally skipped."
 
   summary:
-    working-directory: v2.home-security.uk
     name: Deployment summary
     needs: [validate, setup-ssh, deploy-suricata, deploy-firewalld]
     if: always()
@@ -449,6 +466,7 @@ jobs:
     steps:
       - name: Print summary
         run: |
+          cd v2.home-security.uk || exit 1
           echo "=== Security Changes Deployment Summary ==="
           echo "Target host: $TARGET_USER@$TARGET_HOST:$TARGET_PORT"
           echo ""

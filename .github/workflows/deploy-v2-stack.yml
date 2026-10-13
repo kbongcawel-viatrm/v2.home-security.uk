@@ -24,7 +24,6 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: v2.home-security.uk
     steps:
       - name: Checkout v2.0
         uses: actions/checkout@v4
@@ -34,6 +33,7 @@ jobs:
 
       - name: Check runtime prerequisites
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
           require_command() {
@@ -89,6 +89,7 @@ jobs:
 
       - name: Create deployment environment file
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           install -m 600 .env.example .env
           echo "DEPLOY_ENV_CREATED=true" >> "$GITHUB_ENV"
@@ -103,6 +104,7 @@ jobs:
 
       - name: Pull container images
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           env_value() {
             local key="$1" fallback="$2" value
@@ -146,6 +148,7 @@ jobs:
 
       - name: Deploy containers
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           # Build the worker into containers-storage first, then start services
           # with building disabled so Compose must use this trusted local tag.
@@ -157,6 +160,7 @@ jobs:
       - name: Wait for core services
         timeout-minutes: 5
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           wait_for() {
             local description="$1" attempts="$2" delay="$3"
@@ -201,6 +205,7 @@ jobs:
       - name: Ensure configured Ollama model is available
         timeout-minutes: 60
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
           model="$(awk -F= '$1 == "OLLAMA_MODEL" { sub(/^[^=]*=/, ""); value = $0 } END { print value }' .env)"
           model="${model:-qwen2.5:3b}"
@@ -213,6 +218,7 @@ jobs:
       - name: Health check containers
         timeout-minutes: 5
         run: |
+          cd v2.home-security.uk || exit 1
           set -euo pipefail
 
           wait_for() {
@@ -283,6 +289,7 @@ jobs:
       - name: Collect diagnostics on failure
         if: failure()
         run: |
+          cd v2.home-security.uk || exit 1
           set +e
           podman-compose -f compose.yaml ps
           for name in openobserve ollama fluent-bit security-ai; do
@@ -296,6 +303,7 @@ jobs:
       - name: Deployment summary
         if: always()
         run: |
+          cd v2.home-security.uk || exit 1
           echo "=== Stack Deployment Complete ==="
           echo ""
           echo "Next steps for AI-driven security changes:"
