@@ -17,7 +17,9 @@ HOST_EXEC="$SCRIPT_DIR/host-exec.sh"
 # Check if we're inside Toolbox
 if [[ -e /run/.toolboxenv ]]; then
     # Inside Toolbox - run on host via host-exec.sh
-    exec "$HOST_EXEC" podman "$@"
+    # IMPORTANT: Unset CONTAINER_HOST so Podman uses the host's default socket
+    # (CONTAINER_HOST points to Toolbox's socket which doesn't exist on host)
+    exec env -u CONTAINER_HOST "$HOST_EXEC" podman "$@"
 else
     # Not in Toolbox - run directly
     exec podman "$@"
