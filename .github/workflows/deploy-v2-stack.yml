@@ -46,7 +46,7 @@ jobs:
             echo "Found $name: $path"
           }
 
-          require_command podman
+          require_command ./scripts/podman-host.sh
           require_command podman-compose
           require_command curl
           require_command python3
@@ -56,8 +56,8 @@ jobs:
             exit 1
           fi
 
-          if ! podman_error="$(podman info 2>&1 >/dev/null)"; then
-            echo "::error::Podman is installed but 'podman info' failed for runner user $(id -un). Check the runner user's Podman storage/runtime access."
+          if ! podman_error="$(./scripts/podman-host.sh info 2>&1 >/dev/null)"; then
+            echo "::error::Podman is installed but './scripts/podman-host.sh info' failed for runner user $(id -un). Check the runner user's Podman storage/runtime access."
             printf '%s\n' "$podman_error" >&2
             exit 1
           fi
@@ -78,7 +78,7 @@ jobs:
           fi
 
       - name: Validate Compose configuration
-        run: podman-compose -f compose.yaml config >/dev/null
+        run: ./scripts/podman-compose-host.sh -f compose.yaml config >/dev/null
 
       - name: Pull container images
         run: |
@@ -131,7 +131,7 @@ jobs:
           # Build in the host namespace (see the pull step) so the signature
           # policy file is applied to the image commit.
           ./scripts/host-exec.sh env -u CONTAINER_HOST podman build --signature-policy "$GITHUB_WORKSPACE/v2.home-security.uk/containers-policy.json" -t localhost/minimal-ai-security-worker:1.0 ./security-ai
-          podman-compose -f compose.yaml up -d --no-build
+          ./scripts/podman-compose-host.sh -f compose.yaml up -d --no-build
 
       - name: Wait for core services
         timeout-minutes: 5
@@ -154,13 +154,13 @@ jobs:
 
           required_containers=(openobserve ollama fluent-bit security-ai)
           for name in "${required_containers[@]}"; do
-            if ! podman container exists "$name"; then
+            if ! ./scripts/podman-host.sh container exists "$name"; then
               echo "::error::Required container is missing: $name"
-              podman-compose -f compose.yaml ps || true
+              ./scripts/podman-compose-host.sh -f compose.yaml ps || true
               exit 1
             fi
-            wait_for "$name container running" 30 5 bash -c '[[ "$(podman inspect --format "{{.State.Status}}" "$1" 2>/dev/null)" == running ]]' _ "$name" || {
-              podman logs --tail 100 "$name" || true
+            wait_for "$name container running" 30 5 bash -c '[[ "$(./scripts/podman-host.sh inspect --format "{{.State.Status}}" "$1" 2>/dev/null)" == running ]]' _ "$name" || {
+              ./scripts/podman-host.sh logs --tail 100 "$name" || true
               exit 1
             }
           done
@@ -173,7 +173,7 @@ jobs:
           wait_for "OpenObserve HTTP health endpoint" 30 5 openobserve_ready
 
           ollama_ready() {
-            podman exec ollama ollama list >/dev/null 2>&1
+            ./scripts/podman-host.sh exec ollama ollama list >/dev/null 2>&1
           }
           wait_for "Ollama API" 30 5 ollama_ready
 
@@ -183,10 +183,10 @@ jobs:
           set -euo pipefail
           model="$(awk -F= '$1 == "OLLAMA_MODEL" { sub(/^[^=]*=/, ""); value = $0 } END { print value }' .env)"
           model="${model:-qwen2.5:3b}"
-          if podman exec ollama ollama show "$model" >/dev/null 2>&1; then
+          if ./scripts/podman-host.sh exec ollama ollama show "$model" >/dev/null 2>&1; then
             echo "Ollama model already present: $model"
           else
-            podman exec ollama ollama pull "$model"
+            ./scripts/podman-host.sh exec ollama ollama pull "$model"
           fi
 
       - name: Health check containers
@@ -213,21 +213,21 @@ jobs:
           # its image defines a healthcheck. "not-configured" is informational.
           required_containers=(openobserve ollama fluent-bit security-ai)
           for name in "${required_containers[@]}"; do
-            if ! podman container exists "$name"; then
+            if ! ./scripts/podman-host.sh container exists "$name"; then
               echo "::error::Required container is missing: $name"
-              podman-compose -f compose.yaml ps || true
+              ./scripts/podman-compose-host.sh -f compose.yaml ps || true
               exit 1
             fi
-            wait_for "$name container running" 30 5 bash -c '[[ "$(podman inspect --format "{{.State.Status}}" "$1" 2>/dev/null)" == running ]]' _ "$name" || {
-              podman logs --tail 100 "$name" || true
+            wait_for "$name container running" 30 5 bash -c '[[ "$(./scripts/podman-host.sh inspect --format "{{.State.Status}}" "$1" 2>/dev/null)" == running ]]' _ "$name" || {
+              ./scripts/podman-host.sh logs --tail 100 "$name" || true
               exit 1
             }
-            state="$(podman inspect --format '{{.State.Status}}' "$name")"
-            health="$(podman inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}not-configured{{end}}' "$name" 2>/dev/null || echo unknown)"
+            state="$(./scripts/podman-host.sh inspect --format '{{.State.Status}}' "$name")"
+            health="$(./scripts/podman-host.sh inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}not-configured{{end}}' "$name" 2>/dev/null || echo unknown)"
             echo "$name: state=$state health=$health"
             if [[ "$health" == "unhealthy" ]]; then
               echo "::error::Container $name reports unhealthy."
-              podman logs --tail 100 "$name" || true
+              ./scripts/podman-host.sh logs --tail 100 "$name" || true
               exit 1
             fi
           done
@@ -241,32 +241,32 @@ jobs:
           wait_for "OpenObserve HTTP health endpoint" 30 5 openobserve_ready
 
           # Verify Ollama and the configured model after its health-gated pull.
-          podman exec ollama ollama list
+          ./scripts/podman-host.sh exec ollama ollama list
           model="$(sed -n 's/^OLLAMA_MODEL=//p' .env | tail -n 1)"
           model="${model:-qwen2.5:3b}"
-          podman exec ollama ollama show "$model" >/dev/null
+          ./scripts/podman-host.sh exec ollama ollama show "$model" >/dev/null
 
           # Verify Fluent Bit and the AI worker are alive. The worker reads
           # security_logs from OpenObserve; host log files are mounted only in
           # Fluent Bit and are not direct worker inputs.
-          podman top fluent-bit
-          podman logs --tail 100 security-ai | grep -F "security-ai worker started" >/dev/null || {
+          ./scripts/podman-host.sh top fluent-bit
+          ./scripts/podman-host.sh logs --tail 100 security-ai | grep -F "security-ai worker started" >/dev/null || {
             echo "::error::AI worker startup marker not found in recent logs."
-            podman logs --tail 100 security-ai || true
+            ./scripts/podman-host.sh logs --tail 100 security-ai || true
             exit 1
           }
 
           echo "All Compose services, OpenObserve, Ollama, Fluent Bit, and AI worker checks passed."
-          podman-compose -f compose.yaml ps
+          ./scripts/podman-compose-host.sh -f compose.yaml ps
 
       - name: Collect diagnostics on failure
         if: failure()
         run: |
           set +e
-          podman-compose -f compose.yaml ps
+          ./scripts/podman-compose-host.sh -f compose.yaml ps
           for name in openobserve ollama fluent-bit security-ai; do
             echo "===== $name ====="
-            podman logs --tail 100 "$name"
+            ./scripts/podman-host.sh logs --tail 100 "$name"
           done
       - name: Remove temporary environment file
         if: always() && env.DEPLOY_ENV_CREATED == 'true'
