@@ -1,0 +1,84 @@
+# Hardened SSH Client Configuration for GitHub Actions
+# Place this at ~/.ssh/config on the GitHub-hosted runner
+#
+# Usage in workflow:
+#   - name: Set up SSH config
+#     run: |
+#       mkdir -p ~/.ssh
+#       chmod 700 ~/.ssh
+#       cp scripts/ssh_config.hardened ~/.ssh/config
+#       chmod 600 ~/.ssh/config
+#
+# Or use with SSH command:
+#   ssh -F scripts/ssh_config.hardened user@host
+
+# Global defaults - apply to all hosts
+Host *
+    # Only use public key authentication (no passwords)
+    PreferredAuthentications publickey
+    PasswordAuthentication no
+    ChallengeResponseAuthentication no
+    KbdInteractiveAuthentication no
+    
+    # Disable weak host key algorithms
+    HostKeyAlgorithms ssh-ed25519-cert-v01@openssh.com,ssh-ed25519,rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-512,rsa-sha2-256-cert-v01@openssh.com,rsa-sha2-256,ecdsa-sha2-nistp521-cert-v01@openssh.com,ecdsa-sha2-nistp521,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp384,ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp256
+    
+    # Only use strong ciphers (ChaCha20 and AES-GCM preferred)
+    Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
+    
+    # Only use strong key exchange algorithms
+    KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group18-sha512,diffie-hellman-group16-sha512,diffie-hellman-group-exchange-sha256
+    
+    # Only use strong MAC algorithms (encrypt-then-MAC)
+    MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512,hmac-sha2-256
+    
+    # Compression (only after authentication, disabled for security)
+    Compression no
+    
+    # Connection settings
+    ConnectTimeout 10
+    ConnectionAttempts 3
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+    
+    # Security hardening
+    StrictHostKeyChecking yes
+    CheckHostIP yes
+    HashKnownHosts yes
+    
+    # Disable tunneling and forwarding (not needed for Ansible)
+    ForwardAgent no
+    ForwardX11 no
+    ForwardX11Trusted no
+    PermitLocalCommand no
+    
+    # Disable unused authentication methods
+    GSSAPIAuthentication no
+    GSSAPIDelegateCredentials no
+    
+    # Logging
+    LogLevel ERROR
+    
+    # Identity file (set by workflow)
+    # IdentityFile ~/.ssh/id_ed25519
+
+# Specific configuration for the target host
+# The workflow will replace TARGET_HOST with the actual hostname/IP
+Host target-host
+    HostName %h
+    User %r
+    Port 22
+    
+    # Use the GitHub Actions SSH key
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+    
+    # Reuse connections for performance (optional)
+    # ControlMaster auto
+    # ControlPath ~/.ssh/control-%r@%h:%p
+    # ControlPersist 10m
+
+# Wildcard match for any host (fallback)
+Host *
+    # Re-enable some options that might be needed
+    # (These are already set above, but can be overridden per-host)

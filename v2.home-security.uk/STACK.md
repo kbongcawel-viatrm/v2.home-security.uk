@@ -45,7 +45,8 @@ Security changes are deployed by a **two-stage workflow**:
 
 **Stage 2: apply-host-security-changes.yml** (GitHub-hosted runner: `ubuntu-latest`)
 - Runs on GitHub-hosted runner (no self-hosted runner needed for security)
-- Connects to target Fedora host via SSH
+- Connects to target Fedora host via SSH with hardened configuration
+- Uses `scripts/setup-ssh.sh` for secure SSH setup
 - Uses GitHub secrets: `TARGET_HOST`, `TARGET_USER`, `TARGET_SSH_KEY`
 - Validates playbooks with `scripts/validate-local-playbooks.py`
 - Runs check mode (dry-run) with `--check --diff`
