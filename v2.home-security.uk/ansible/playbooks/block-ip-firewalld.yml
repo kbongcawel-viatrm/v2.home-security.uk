@@ -1,0 +1,75 @@
+---
+# Block an IP address using firewalld rich rules
+# This playbook adds a firewalld rich rule to drop traffic from a specific IP.
+#
+# Variables required (pass with --extra-vars):
+#   blocked_ip: The IP address to block (e.g., "192.0.2.100")
+#   block_zone: The firewalld zone (default: "public")
+#   block_reason: Reason for blocking (for documentation)
+#
+# Example:
+#   ansible-playbook -i localhost, -c local --become \
+#     --extra-vars "blocked_ip=192.0.2.100 block_zone=public block_reason='SSH brute force'" \
+#     ansible/playbooks/block-ip-firewalld.yml
+#
+# Rollback: Run rollback-firewalld.yml with the same blocked_ip
+
+- name: Block IP address using firewalld
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: true
+
+  vars:
+    blocked_ip: "{{ block_ip | mandatory('block_ip variable is required') }}"
+    block_zone: "{{ zone | default('public') }}"
+    block_reason: "{{ reason | default('AI-recommended block') }}"
+    rich_rule: "rule family=ipv4 source address={{ blocked_ip }} drop"
+
+  tasks:
+    - name: Validate IP address format
+      ansible.builtin.assert:
+        that:
+          - blocked_ip is match('^([0-9]{1,3}\.){3}[0-9]{1,3}$|^([0-9a-fA-F:]+)$')
+        fail_msg: "Invalid IP address format: {{ blocked_ip }}"
+
+    - name: Validate zone name
+      ansible.builtin.assert:
+        that:
+          - block_zone is match('^[A-Za-z0-9_-]{1,64}$')
+        fail_msg: "Invalid zone name: {{ block_zone }}"
+
+    - name: Check if IP is already blocked
+      ansible.builtin.command:
+        cmd: firewall-cmd --zone={{ block_zone }} --query-rich-rule='{{ rich_rule }}'
+      register: existing_rule
+      failed_when: existing_rule.rc not in [0, 1]
+      changed_when: false
+
+    - name: Add rich rule to block IP (runtime)
+      ansible.builtin.command:
+        cmd: firewall-cmd --zone={{ block_zone }} --add-rich-rule='{{ rich_rule }}'
+      when: existing_rule.rc != 0
+      register: runtime_block
+
+    - name: Add rich rule to block IP (permanent)
+      ansible.builtin.command:
+        cmd: firewall-cmd --zone={{ block_zone }} --permanent --add-rich-rule='{{ rich_rule }}'
+      when: existing_rule.rc != 0
+      register: permanent_block
+
+    - name: Reload firewalld to apply permanent changes
+      ansible.builtin.service:
+        name: firewalld
+        state: reloaded
+      when: permanent_block.changed
+
+    - name: Report block result
+      ansible.builtin.debug:
+        msg:
+          - "IP block status: {{ 'already blocked' if existing_rule.rc == 0 else 'newly blocked' }}"
+          - "Blocked IP: {{ blocked_ip }}"
+          - "Zone: {{ block_zone }}"
+          - "Reason: {{ block_reason }}"
+          - "Rich rule: {{ rich_rule }}"
+          - "Rollback: ansible-playbook --extra-vars \"block_ip={{ blocked_ip }} zone={{ block_zone }}\" rollback-firewalld.yml"

@@ -1,0 +1,20 @@
+# Example Suricata rules artifact
+# Copy this file to suricata.rules and customize before deployment
+# Rules are deployed to /var/lib/suricata/rules/suricata.rules by the ansible playbook
+# After deployment, Suricata is reloaded automatically by the playbook
+
+# Example: Detect repeated SSH brute force attempts from a single source
+# alert tcp any any -> $HOME_NET 22 (msg:"AI-REC: SSH brute force attempt detected"; flow:to_server,established; content:"SSH-"; detection_filter:track by_src, count 5, seconds 60; classtype:attempted-admin; sid:1000001; rev:1; metadata:created_at 2026-01-01, cve CVE-2024-6387, attack_type brute_force, source_id AI-RECOMMENDATION;)
+
+# Example: Detect potential CVE-2021-44228 (Log4Shell) exploitation attempt
+# alert http any any -> $HOME_NET any (msg:"AI-REC: Possible Log4Shell exploitation attempt"; flow:to_server,established; content:"${jndi:"; http_uri; classtype:attempted-admin; sid:1000002; rev:1; metadata:created_at 2026-01-01, cve CVE-2021-44228, attack_type rce_exploit, source_id AI-RECOMMENDATION;)
+
+# Example: Detect outbound connection to known C2 pattern
+# alert tcp $HOME_NET any -> any any (msg:"AI-REC: Suspicious outbound connection pattern"; flow:to_server,established; threshold: type both, track by_src, count 10, seconds 60; classtype:trojan-activity; sid:1000003; rev:1; metadata:created_at 2026-01-01, attack_type c2_beacon, community_id AI-GENERATED;)
+
+# Rules must:
+# - Start with 'alert' (never use pass, drop, or reject without explicit human approval)
+# - Be single-line (no newlines within a rule)
+# - Include a unique sid in the 1000000+ range (local rules)
+# - Include metadata with CVE, attack_type, and source_id or community_id
+# - Be narrowly scoped (specific ports, protocols, content matches)

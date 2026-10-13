@@ -1,0 +1,84 @@
+---
+# Block a service or port using firewalld
+# This playbook removes a service or port from a firewalld zone.
+#
+# Variables required (pass with --extra-vars):
+#   block_service: The service name to block (e.g., "ssh", "http") OR
+#   block_port: The port to block (e.g., "22/tcp", "8080/tcp")
+#   block_zone: The firewalld zone (default: "public")
+#
+# Example (block service):
+#   ansible-playbook -i localhost, -c local --become \
+#     --extra-vars "block_service=telnet block_zone=public" \
+#     ansible/playbooks/block-service-firewalld.yml
+#
+# Example (block port):
+#   ansible-playbook -i localhost, -c local --become \
+#     --extra-vars "block_port=4444/tcp block_zone=public" \
+#     ansible/playbooks/block-service-firewalld.yml
+#
+# Rollback: Re-add the service/port manually or use firewall-cmd --add-service/--add-port
+
+- name: Block service or port using firewalld
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: true
+
+  vars:
+    block_service: "{{ service_name | default('') }}"
+    block_port: "{{ port | default('') }}"
+    block_zone: "{{ zone | default('public') }}"
+
+  tasks:
+    - name: Validate that either service or port is specified
+      ansible.builtin.assert:
+        that:
+          - block_service != '' or block_port != ''
+        fail_msg: "Either service_name or port variable must be specified"
+
+    - name: Validate zone name
+      ansible.builtin.assert:
+        that:
+          - block_zone is match('^[A-Za-z0-9_-]{1,64}$')
+        fail_msg: "Invalid zone name: {{ block_zone }}"
+
+    - name: Block service (runtime)
+      ansible.builtin.command:
+        cmd: firewall-cmd --zone={{ block_zone }} --remove-service={{ block_service }}
+      when: block_service != ''
+      register: runtime_service_block
+      failed_when: runtime_service_block.rc != 0 and 'NOT_ENABLED' not in runtime_service_block.stderr
+
+    - name: Block service (permanent)
+      ansible.builtin.command:
+        cmd: firewall-cmd --zone={{ block_zone }} --permanent --remove-service={{ block_service }}
+      when: block_service != ''
+      register: permanent_service_block
+
+    - name: Block port (runtime)
+      ansible.builtin.command:
+        cmd: firewall-cmd --zone={{ block_zone }} --remove-port={{ block_port }}
+      when: block_port != ''
+      register: runtime_port_block
+      failed_when: runtime_port_block.rc != 0 and 'NOT_ENABLED' not in runtime_port_block.stderr
+
+    - name: Block port (permanent)
+      ansible.builtin.command:
+        cmd: firewall-cmd --zone={{ block_zone }} --permanent --remove-port={{ block_port }}
+      when: block_port != ''
+      register: permanent_port_block
+
+    - name: Reload firewalld to apply permanent changes
+      ansible.builtin.service:
+        name: firewalld
+        state: reloaded
+      when: permanent_service_block.changed or permanent_port_block.changed
+
+    - name: Report block result
+      ansible.builtin.debug:
+        msg:
+          - "Block type: {{ 'service' if block_service != '' else 'port' }}"
+          - "Target: {{ block_service if block_service != '' else block_port }}"
+          - "Zone: {{ block_zone }}"
+          - "Rollback: firewall-cmd --zone={{ block_zone }} --add-{{ 'service=' + block_service if block_service != '' else 'port=' + block_port }}"

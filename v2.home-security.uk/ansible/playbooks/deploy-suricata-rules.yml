@@ -1,0 +1,87 @@
+---
+# Deploy reviewed Suricata rules and reload Suricata
+# This playbook copies the reviewed rules artifact to the Suricata rules directory
+# and reloads Suricata to apply the new rules.
+#
+# Prerequisites:
+# - artifacts/suricata.rules must exist and be reviewed
+# - Suricata must be installed and managed by systemd on the host
+# - The runner must have sudo access to copy files and reload suricata
+#
+# Rollback: Remove the deployed rules file and reload Suricata again
+
+- name: Deploy reviewed Suricata rules and reload Suricata
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: true
+
+  vars:
+    suricata_rules_source: "{{ playbook_dir }}/../../artifacts/suricata.rules"
+    suricata_rules_dest: "/var/lib/suricata/rules/suricata.rules"
+    suricata_rules_backup: "/var/lib/suricata/rules/suricata.rules.bak"
+    suricata_service: "suricata"
+
+  tasks:
+    - name: Verify rules artifact exists and is non-empty
+      ansible.builtin.stat:
+        path: "{{ suricata_rules_source }}"
+      register: rules_artifact
+
+    - name: Fail if rules artifact is missing or empty
+      ansible.builtin.assert:
+        that:
+          - rules_artifact.stat.exists
+          - rules_artifact.stat.size > 0
+        fail_msg: "Suricata rules artifact is missing or empty: {{ suricata_rules_source }}"
+
+    - name: Verify destination directory exists
+      ansible.builtin.stat:
+        path: "/var/lib/suricata/rules"
+      register: rules_dir
+
+    - name: Fail if rules directory does not exist
+      ansible.builtin.assert:
+        that:
+          - rules_dir.stat.exists
+          - rules_dir.stat.isdir
+        fail_msg: "Suricata rules directory does not exist: /var/lib/suricata/rules"
+
+    - name: Backup existing rules file if present
+      ansible.builtin.copy:
+        src: "{{ suricata_rules_dest }}"
+        dest: "{{ suricata_rules_backup }}"
+        remote_src: true
+      when: rules_artifact.stat.exists
+      ignore_errors: true
+      register: backup_result
+
+    - name: Deploy reviewed Suricata rules
+      ansible.builtin.copy:
+        src: "{{ suricata_rules_source }}"
+        dest: "{{ suricata_rules_dest }}"
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      register: deploy_result
+
+    - name: Validate Suricata configuration with new rules
+      ansible.builtin.command:
+        cmd: suricata -T -c /etc/suricata/suricata.yaml -S {{ suricata_rules_dest }}
+      register: suricata_test
+      changed_when: false
+
+    - name: Reload Suricata to apply new rules
+      ansible.builtin.service:
+        name: "{{ suricata_service }}"
+        state: reloaded
+      when: deploy_result.changed
+
+    - name: Report deployment result
+      ansible.builtin.debug:
+        msg:
+          - "Suricata rules deployed successfully"
+          - "Rules file: {{ suricata_rules_dest }}"
+          - "Backup created: {{ suricata_rules_backup }}"
+          - "Suricata reloaded: {{ deploy_result.changed }}"

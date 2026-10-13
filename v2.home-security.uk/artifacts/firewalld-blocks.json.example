@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "generated_by": "AI security worker",
+  "generated_at": "2026-01-01T00:00:00Z",
+  "description": "Firewalld block requests generated from AI security analysis. Review before applying.",
+  "blocks": [
+    {
+      "block_type": "ip",
+      "target": "192.0.2.100",
+      "zone": "public",
+      "reason": "SSH brute force attempt detected (CVE-2024-6387 related)",
+      "cve_ids": ["CVE-2024-6387"],
+      "attack_types": ["brute_force"],
+      "mitre_techniques": ["T1110"],
+      "event_refs": ["abc123def456"],
+      "confidence": "high",
+      "expires_at": "2026-01-08T00:00:00Z"
+    },
+    {
+      "block_type": "service",
+      "target": "telnet",
+      "zone": "public",
+      "reason": "Telnet service should not be exposed; potential backdoor vector",
+      "cve_ids": [],
+      "attack_types": ["backdoor", "unauthorized_access"],
+      "mitre_techniques": ["T1021"],
+      "event_refs": ["def456ghi789"],
+      "confidence": "medium",
+      "expires_at": null
+    },
+    {
+      "block_type": "port",
+      "target": "4444/tcp",
+      "zone": "public",
+      "reason": "Metasploit default handler port detected in outbound connection",
+      "cve_ids": [],
+      "attack_types": ["c2_beacon", "malware"],
+      "mitre_techniques": ["T1071", "T1573"],
+      "event_refs": ["ghi789jkl012"],
+      "confidence": "high",
+      "expires_at": "2026-01-02T00:00:00Z"
+    }
+  ],
+  "rollback_instructions": "Use ansible/playbooks/rollback-firewalld.yml with the same parameters to undo changes."
+}

@@ -1,0 +1,85 @@
+---
+# Rollback firewalld changes (unblock IP or re-enable service/port)
+# This playbook removes rich rules or re-adds services/ports.
+#
+# Variables required (pass with --extra-vars):
+#   unblock_ip: The IP address to unblock (optional)
+#   enable_service: The service to re-enable (optional)
+#   enable_port: The port to re-enable (optional)
+#   rollback_zone: The firewalld zone (default: "public")
+#
+# Example (unblock IP):
+#   ansible-playbook -i localhost, -c local --become \
+#     --extra-vars "unblock_ip=192.0.2.100 rollback_zone=public" \
+#     ansible/playbooks/rollback-firewalld.yml
+
+- name: Rollback firewalld changes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: true
+
+  vars:
+    unblock_ip: "{{ block_ip | default('') }}"
+    enable_service: "{{ service_name | default('') }}"
+    enable_port: "{{ port | default('') }}"
+    rollback_zone: "{{ zone | default('public') }}"
+
+  tasks:
+    - name: Validate that at least one rollback action is specified
+      ansible.builtin.assert:
+        that:
+          - unblock_ip != '' or enable_service != '' or enable_port != ''
+        fail_msg: "At least one of block_ip, service_name, or port must be specified"
+
+    - name: Unblock IP (runtime)
+      ansible.builtin.command:
+        cmd: firewall-cmd --zone={{ rollback_zone }} --remove-rich-rule='rule family=ipv4 source address={{ unblock_ip }} drop'
+      when: unblock_ip != ''
+      register: runtime_unblock
+      failed_when: runtime_unblock.rc != 0 and 'NOT_ENABLED' not in runtime_unblock.stderr
+
+    - name: Unblock IP (permanent)
+      ansible.builtin.command:
+        cmd: firewall-cmd --zone={{ rollback_zone }} --permanent --remove-rich-rule='rule family=ipv4 source address={{ unblock_ip }} drop'
+      when: unblock_ip != ''
+      register: permanent_unblock
+
+    - name: Re-enable service (runtime)
+      ansible.builtin.command:
+        cmd: firewall-cmd --zone={{ rollback_zone }} --add-service={{ enable_service }}
+      when: enable_service != ''
+      register: runtime_service
+
+    - name: Re-enable service (permanent)
+      ansible.builtin.command:
+        cmd: firewall-cmd --zone={{ rollback_zone }} --permanent --add-service={{ enable_service }}
+      when: enable_service != ''
+      register: permanent_service
+
+    - name: Re-enable port (runtime)
+      ansible.builtin.command:
+        cmd: firewall-cmd --zone={{ rollback_zone }} --add-port={{ enable_port }}
+      when: enable_port != ''
+      register: runtime_port
+
+    - name: Re-enable port (permanent)
+      ansible.builtin.command:
+        cmd: firewall-cmd --zone={{ rollback_zone }} --permanent --add-port={{ enable_port }}
+      when: enable_port != ''
+      register: permanent_port
+
+    - name: Reload firewalld to apply permanent changes
+      ansible.builtin.service:
+        name: firewalld
+        state: reloaded
+      when: permanent_unblock.changed or permanent_service.changed or permanent_port.changed
+
+    - name: Report rollback result
+      ansible.builtin.debug:
+        msg:
+          - "Rollback completed"
+          - "Unblocked IP: {{ unblock_ip if unblock_ip != '' else 'N/A' }}"
+          - "Re-enabled service: {{ enable_service if enable_service != '' else 'N/A' }}"
+          - "Re-enabled port: {{ enable_port if enable_port != '' else 'N/A' }}"
+          - "Zone: {{ rollback_zone }}"

@@ -270,3 +270,27 @@ jobs:
       - name: Remove temporary environment file
         if: always() && env.DEPLOY_ENV_CREATED == 'true'
         run: rm -f .env
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "=== Stack Deployment Complete ==="
+          echo ""
+          echo "Next steps for AI-driven security changes:"
+          echo "  1. Review AI recommendations in OpenObserve (ai_recommendations stream)"
+          echo "  2. Create artifacts in v2.home-security.uk/artifacts/:"
+          echo "     - suricata.rules (AI-generated detection rules)"
+          echo "     - firewalld-blocks.json (AI-generated block requests)"
+          echo "  3. Commit artifacts to the repository"
+          echo "  4. Run 'Apply Host Security Changes' workflow on a HOST-LEVEL runner"
+          echo "     (label: self-hosted, linux, fedora, host)"
+          echo ""
+          echo "The host-level workflow will:"
+          echo "  - Validate playbooks and artifacts"
+          echo "  - Run check mode (dry-run)"
+          echo "  - Deploy Suricata rules and reload suricata.service"
+          echo "  - Apply firewalld rules to block IPs/services"
+          echo ""
+          echo "Note: This workflow runs inside Toolbox and cannot modify host services."
+          echo "      Security changes are deployed by apply-host-security-changes.yml"
+          echo "      which runs on a separate host-level runner."

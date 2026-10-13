@@ -30,7 +30,51 @@ An existing `wazuh_alerts` stream may remain in the OpenObserve data volume from
 4. The worker writes the model's structured findings and proposed rule/configuration changes to the `ai_recommendations` stream.
 5. A human reviews proposed changes, tests them in a controlled environment, commits approved changes to version control, deploys them, and verifies the resulting events.
 
-The AI worker is advisory only. It does not modify or reload live security rules, run response actions, or execute Ansible. Recommendations may include narrow Suricata `alert` rules, firewalld runtime-addition argument arrays, and bounded Ansible playbook YAML drafts. An Ansible-focused authoring module uses concise local guidance, runs structural/allowlist checks and `ansible-playbook --syntax-check` in an isolated temporary directory, and includes only passing proposals. Ollama is prompted to produce Ansible-formatted suggestions; this is not model training or persistent learning. The worker accepts only playbook drafts tied to evidence references, with every play explicitly restricted to `hosts: localhost` and `connection: local`, and using an allowlist of built-in modules; shell/command/raw tasks and arbitrary roles are rejected. These are unapplied drafts. A human must check assumptions, local paths, privilege escalation, rule syntax, expected impact, and rollback. Syntax validation is not proof of correctness or runtime safety: test using `--check --diff` in a safe environment before considering manual execution; check mode does not guarantee every module is side-effect-free.
+The AI worker generates recommendations correlated to CVEs and cyber attacks. It does not modify or reload live security rules, run response actions, or execute Ansible. Recommendations include:
+1. **Suricata rules** with CVE, attack_type, source_id, community_id metadata - deployed to `/var/lib/suricata/rules/suricata.rules` and Suricata is reloaded
+2. **Firewall-cmd rules** to block IPs, services, or ports - applied via firewalld rich rules
+
+### Deployment Architecture
+
+Security changes are deployed by a **two-stage workflow**:
+
+**Stage 1: deploy-v2-stack.yml** (Toolbox runner: `[self-hosted, fedora]`)
+- Deploys the container stack (OpenObserve, Ollama, Fluent Bit, security-ai)
+- The AI worker runs inside containers and generates recommendations
+- Recommendations are stored in OpenObserve `ai_recommendations` stream
+
+**Stage 2: apply-host-security-changes.yml** (Host-level runner: `[self-hosted, linux, fedora, host]`)
+- Runs directly on the Fedora host (NOT inside Toolbox)
+- Validates playbooks with `scripts/validate-local-playbooks.py`
+- Runs check mode (dry-run) with `--check --diff`
+- Applies changes with `--become` for root permissions
+- Deploys Suricata rules and reloads suricata.service
+- Applies firewalld rich rules to block IPs/services/ports
+
+### Ansible Playbooks
+
+Playbooks in `ansible/playbooks/` are restricted to localhost only:
+- `deploy-suricata-rules.yml` - Deploy rules and reload Suricata
+- `block-ip-firewalld.yml` - Block IP with firewalld rich rule
+- `block-service-firewalld.yml` - Block service or port
+- `rollback-firewalld.yml` - Rollback firewall changes
+
+### Artifacts
+
+Reviewed artifacts in `artifacts/`:
+- `suricata.rules` - AI-generated Suricata detection rules
+- `firewalld-blocks.json` - AI-generated firewalld block requests
+
+### Host-Level Runner Requirements
+
+The `apply-host-security-changes.yml` workflow requires a separate runner:
+- Label: `[self-hosted, linux, fedora, host]`
+- Runs directly on Fedora host (not inside Toolbox)
+- Non-interactive sudo access for `--become`
+- Access to `/var/lib/suricata/rules/`, `systemctl`, `firewall-cmd`, `suricata`
+
+A human must review artifacts, commit them to the repository, and trigger the
+host-level workflow. The worker never executes changes directly.
 
 The optional `.github/workflows/ansible-local.yml` workflow operates only on reviewed playbooks committed under `ansible/playbooks/` and requires the non-empty reviewed artifact `artifacts/suricata.rules`; it does not import AI recommendations automatically. This workflow's allowed deployment action is copying that artifact to `/var/lib/suricata/rules/suricata.rules`. It does not alter Suricata configuration or reload/restart Suricata; after apply, a human must review the deployed rules and manually reload Suricata on the host later. Firewall-cmd rules are not applied by the workflow; any approved firewall commands must be reviewed and run manually with `sudo` on the host. Workflow dispatch defaults to simulation (policy, syntax, and check-mode preview only). Applying requires explicitly disabling simulation and approving the configured `ansible-local-apply` GitHub Environment; the apply command uses `--become` on the Fedora self-hosted runner, so the runner account must have suitable non-interactive sudo authorization. Playbooks are repeated on each apply run and should be idempotent to correct drift. No reviewed rules artifact/playbook is currently available, so no deployment or runner simulation has been verified.
 

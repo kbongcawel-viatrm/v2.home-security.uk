@@ -1,0 +1,325 @@
+name: Apply Host Security Changes
+
+# This workflow runs on a HOST-LEVEL runner (not inside Toolbox) to deploy
+# security changes to host services (Suricata, firewalld).
+#
+# Architecture:
+#   1. deploy-v2-stack.yml (Toolbox runner) - deploys containers, generates artifacts
+#   2. apply-host-security-changes.yml (HOST runner) - deploys security changes to host
+#
+# The host-level runner must be configured with a label like:
+#   [self-hosted, linux, fedora, host]
+#
+# This runner runs directly on the Fedora host (not inside Toolbox), so it can:
+#   - Write to /var/lib/suricata/rules/
+#   - Reload suricata.service
+#   - Execute firewall-cmd with root privileges (--become)
+
+on:
+  workflow_dispatch:
+    inputs:
+      simulate:
+        description: "Run validation and check-mode only (no host changes)"
+        type: boolean
+        required: true
+        default: true
+      deploy_suricata:
+        description: "Deploy Suricata rules and reload Suricata"
+        type: boolean
+        required: true
+        default: false
+      deploy_firewalld:
+        description: "Apply firewalld changes (block IPs/services)"
+        type: boolean
+        required: true
+        default: false
+      blocked_ip:
+        description: "IP address to block (if deploy_firewalld is true)"
+        type: string
+        required: false
+        default: ""
+      block_zone:
+        description: "Firewalld zone for blocking (default: public)"
+        type: string
+        required: false
+        default: "public"
+  workflow_call:
+    inputs:
+      simulate:
+        description: "Run validation and check-mode only (no host changes)"
+        type: boolean
+        required: false
+        default: true
+      deploy_suricata:
+        description: "Deploy Suricata rules and reload Suricata"
+        type: boolean
+        required: false
+        default: false
+      deploy_firewalld:
+        description: "Apply firewalld changes (block IPs/services)"
+        type: boolean
+        required: false
+        default: false
+      blocked_ip:
+        description: "IP address to block (if deploy_firewalld is true)"
+        type: string
+        required: false
+        default: ""
+      block_zone:
+        description: "Firewalld zone for blocking"
+        type: string
+        required: false
+        default: "public"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-security-changes-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate playbooks and artifacts
+    runs-on: [self-hosted, linux, fedora]
+    timeout-minutes: 15
+    outputs:
+      suricata_rules_present: ${{ steps.check-artifacts.outputs.suricata_rules_present }}
+      firewalld_changes_present: ${{ steps.check-artifacts.outputs.firewalld_changes_present }}
+    steps:
+      - name: Check out repository content
+        uses: actions/checkout@v4
+
+      - name: Confirm Ansible is available
+        run: |
+          set -euo pipefail
+          command -v ansible-playbook
+          ansible-playbook --version
+
+      - name: Check for artifacts
+        id: check-artifacts
+        run: |
+          set -euo pipefail
+          suricata_present="false"
+          firewalld_present="false"
+          if [[ -s artifacts/suricata.rules ]]; then
+            echo "Found artifacts/suricata.rules"
+            suricata_present="true"
+          else
+            echo "No artifacts/suricata.rules found (may be intentional)"
+          fi
+          if [[ -s artifacts/firewalld-blocks.json ]]; then
+            echo "Found artifacts/firewalld-blocks.json"
+            firewalld_present="true"
+          else
+            echo "No artifacts/firewalld-blocks.json found (may be intentional)"
+          fi
+          echo "suricata_rules_present=${suricata_present}" >> "$GITHUB_OUTPUT"
+          echo "firewalld_changes_present=${firewalld_present}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate local-only playbook policy
+        run: python3 scripts/validate-local-playbooks.py ansible/playbooks
+
+      - name: Syntax-check all playbooks
+        run: |
+          set -euo pipefail
+          mapfile -d '' playbooks < <(find ansible/playbooks -type f \( -name '*.yml' -o -name '*.yaml' \) ! -name '.gitkeep' -print0 | sort -z)
+          if ((${#playbooks[@]} == 0)); then
+            echo "::warning::No Ansible playbooks found under ansible/playbooks"
+          fi
+          for playbook in "${playbooks[@]}"; do
+            echo "Syntax-check: $playbook"
+            ansible-playbook --inventory 'localhost,' --connection local --limit localhost --syntax-check "$playbook"
+          done
+
+      - name: Upload artifacts for host-level deployment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-artifacts
+          path: |
+            artifacts/
+            ansible/
+            scripts/
+          retention-days: 1
+
+  deploy-suricata:
+    name: Deploy Suricata rules (host-level)
+    needs: validate
+    if: needs.validate.outputs.suricata_rules_present == 'true' && (inputs.deploy_suricata == true || inputs.simulate == false)
+    runs-on: [self-hosted, linux, fedora, host]
+    environment: host-security-apply
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository content
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: security-artifacts
+          path: .
+
+      - name: Verify host-level access
+        run: |
+          set -euo pipefail
+          echo "Runner is at host level: $(hostname)"
+          echo "User: $(id -un)"
+          if [[ ! -d /var/lib/suricata/rules ]]; then
+            echo "::error::Host-level access required: /var/lib/suricata/rules not accessible"
+            exit 1
+          fi
+          if ! command -v systemctl &>/dev/null; then
+            echo "::error::systemctl not available - host-level runner required"
+            exit 1
+          fi
+          if ! command -v suricata &>/dev/null; then
+            echo "::error::suricata not found - host-level runner required"
+            exit 1
+          fi
+          echo "Host-level access verified"
+
+      - name: Verify sudo access for --become
+        run: |
+          set -euo pipefail
+          sudo -n true 2>/dev/null || {
+            echo "::error::Non-interactive sudo required for --become."
+            exit 1
+          }
+          echo "Sudo access verified"
+
+      - name: Check mode preview (dry-run)
+        run: |
+          set -euo pipefail
+          echo "=== Check mode preview: deploy-suricata-rules.yml ==="
+          ansible-playbook \
+            --inventory 'localhost,' \
+            --connection local \
+            --limit localhost \
+            --become \
+            --check --diff \
+            ansible/playbooks/deploy-suricata-rules.yml
+
+      - name: Deploy Suricata rules and reload Suricata
+        if: ${{ inputs.simulate == false }}
+        run: |
+          set -euo pipefail
+          echo "=== Applying: deploy-suricata-rules.yml ==="
+          ansible-playbook \
+            --inventory 'localhost,' \
+            --connection local \
+            --limit localhost \
+            --become \
+            ansible/playbooks/deploy-suricata-rules.yml
+          echo ""
+          echo "=== Suricata rules deployed and service reloaded ==="
+
+      - name: Simulation completed
+        if: ${{ inputs.simulate != false }}
+        run: echo "Simulation passed; --become apply step was intentionally skipped."
+
+  deploy-firewalld:
+    name: Apply firewalld changes (host-level)
+    needs: validate
+    if: (needs.validate.outputs.firewalld_changes_present == 'true' || inputs.blocked_ip != '') && (inputs.deploy_firewalld == true || inputs.simulate == false)
+    runs-on: [self-hosted, linux, fedora, host]
+    environment: host-security-apply
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository content
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: security-artifacts
+          path: .
+
+      - name: Verify host-level access
+        run: |
+          set -euo pipefail
+          echo "Runner is at host level: $(hostname)"
+          echo "User: $(id -un)"
+          if ! command -v firewall-cmd &>/dev/null; then
+            echo "::error::firewall-cmd not found - host-level runner required"
+            exit 1
+          fi
+          if ! systemctl is-active firewalld &>/dev/null; then
+            echo "::error::firewalld service is not active"
+            exit 1
+          fi
+          echo "Host-level access verified"
+
+      - name: Verify sudo access for --become
+        run: |
+          set -euo pipefail
+          sudo -n true 2>/dev/null || {
+            echo "::error::Non-interactive sudo required for --become."
+            exit 1
+          }
+          echo "Sudo access verified"
+
+      - name: Block IP via Ansible (dry-run)
+        if: ${{ inputs.blocked_ip != '' }}
+        run: |
+          set -euo pipefail
+          echo "=== Check mode preview: block-ip-firewalld.yml ==="
+          ansible-playbook \
+            --inventory 'localhost,' \
+            --connection local \
+            --limit localhost \
+            --become \
+            --check --diff \
+            --extra-vars "block_ip=${{ inputs.blocked_ip }} zone=${{ inputs.block_zone }}" \
+            ansible/playbooks/block-ip-firewalld.yml
+
+      - name: Block IP via Ansible (apply)
+        if: ${{ inputs.simulate == false && inputs.blocked_ip != '' }}
+        run: |
+          set -euo pipefail
+          echo "=== Applying: block-ip-firewalld.yml ==="
+          ansible-playbook \
+            --inventory 'localhost,' \
+            --connection local \
+            --limit localhost \
+            --become \
+            --extra-vars "block_ip=${{ inputs.blocked_ip }} zone=${{ inputs.block_zone }} reason='AI-recommended block'" \
+            ansible/playbooks/block-ip-firewalld.yml
+          echo "=== IP blocked successfully ==="
+
+      - name: Process blocks from artifacts (dry-run)
+        if: needs.validate.outputs.firewalld_changes_present == 'true'
+        run: python3 scripts/process-firewalld-blocks.py --check
+
+      - name: Process blocks from artifacts (apply)
+        if: ${{ inputs.simulate == false && needs.validate.outputs.firewalld_changes_present == 'true' }}
+        run: python3 scripts/process-firewalld-blocks.py
+
+      - name: Simulation completed
+        if: ${{ inputs.simulate != false }}
+        run: echo "Simulation passed; apply steps were intentionally skipped."
+
+  summary:
+    name: Deployment summary
+    needs: [validate, deploy-suricata, deploy-firewalld]
+    if: always()
+    runs-on: [self-hosted, linux, fedora]
+    steps:
+      - name: Print summary
+        run: |
+          echo "=== Host Security Changes Summary ==="
+          echo "Validation: ${{ needs.validate.result }}"
+          echo "Suricata deployment: ${{ needs.deploy-suricata.result }}"
+          echo "Firewalld deployment: ${{ needs.deploy-firewalld.result }}"
+          echo ""
+          if [[ "${{ needs.deploy-suricata.result }}" == "success" ]]; then
+            echo "PASS: Suricata rules deployed and service reloaded"
+          fi
+          if [[ "${{ needs.deploy-firewalld.result }}" == "success" ]]; then
+            echo "PASS: Firewalld changes applied"
+          fi
+          echo ""
+          echo "Verify on host:"
+          echo "  sudo systemctl status suricata"
+          echo "  sudo firewall-cmd --list-all"
+          echo "  sudo tail -f /var/log/suricata/suricata.log"
