@@ -19,7 +19,7 @@ jobs:
   deploy:
     runs-on: [self-hosted, fedora]
     env:
-      CONTAINER_HOST: unix:///run/user/1000/podman/podman.sock
+      CONTAINER_HOST: "unix:///run/user/1000/podman/podman.sock"
     timeout-minutes: 45
     defaults:
       run:
@@ -49,6 +49,28 @@ jobs:
           require_command podman-compose
           require_command curl
           require_command python3
+          
+          # Detect the correct Podman socket path
+          echo "=== Detecting Podman socket ==="
+          if [[ -n "${CONTAINER_HOST:-}" ]]; then
+            echo "CONTAINER_HOST is set to: $CONTAINER_HOST"
+          fi
+          
+          # Find the actual podman socket
+          if [[ -S /run/user/$(id -u)/podman/podman.sock ]]; then
+            export CONTAINER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
+            echo "Found Podman socket: $CONTAINER_HOST"
+          elif [[ -S /run/podman/podman.sock ]]; then
+            export CONTAINER_HOST="unix:///run/podman/podman.sock"
+            echo "Found system Podman socket: $CONTAINER_HOST"
+          else
+            echo "=== Podman socket not found, checking connections ==="
+            podman system connection list || true
+            echo "::warning::Podman socket not found at standard locations"
+            echo "Will use host-exec.sh for Podman operations"
+          fi
+          
+          echo "CONTAINER_HOST=$CONTAINER_HOST" >> "$GITHUB_ENV"
 
           if [[ ! -r containers-policy.json ]]; then
             echo "::error::Repository-scoped containers-policy.json is missing or unreadable."
