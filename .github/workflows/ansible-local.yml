@@ -26,10 +26,10 @@ concurrency:
 defaults:
   run:
     shell: bash
-    working-directory: v2.home-security.uk
 
 jobs:
   apply-reviewed-playbooks:
+    working-directory: v2.home-security.uk
     # Configure this label on the Fedora host's self-hosted Actions runner.
     runs-on: [self-hosted, linux, fedora]
     environment: ansible-local-apply

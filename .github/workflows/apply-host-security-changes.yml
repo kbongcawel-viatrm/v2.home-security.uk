@@ -88,7 +88,6 @@ concurrency:
 defaults:
   run:
     shell: bash
-    working-directory: v2.home-security.uk
 
 env:
   TARGET_HOST: ${{ secrets.TARGET_HOST }}
@@ -100,6 +99,7 @@ env:
 
 jobs:
   validate:
+    working-directory: v2.home-security.uk
     name: Validate playbooks and artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -169,6 +169,7 @@ jobs:
           retention-days: 1
 
   setup-ssh:
+    working-directory: v2.home-security.uk
     name: Set up SSH connection to target host
     needs: validate
     runs-on: ubuntu-latest
@@ -260,6 +261,7 @@ jobs:
           fi
 
   deploy-suricata:
+    working-directory: v2.home-security.uk
     name: Deploy Suricata rules (via SSH)
     needs: [validate, setup-ssh]
     if: needs.validate.outputs.suricata_rules_present == 'true' && needs.setup-ssh.outputs.ssh_ok == 'true' && (inputs.deploy_suricata == true || inputs.simulate == false)
@@ -342,6 +344,7 @@ jobs:
         run: echo "Simulation passed; apply step was intentionally skipped."
 
   deploy-firewalld:
+    working-directory: v2.home-security.uk
     name: Apply firewalld changes (via SSH)
     needs: [validate, setup-ssh]
     if: (needs.validate.outputs.firewalld_changes_present == 'true' || inputs.blocked_ip != '') && needs.setup-ssh.outputs.ssh_ok == 'true' && (inputs.deploy_firewalld == true || inputs.simulate == false)
@@ -438,6 +441,7 @@ jobs:
         run: echo "Simulation passed; apply steps were intentionally skipped."
 
   summary:
+    working-directory: v2.home-security.uk
     name: Deployment summary
     needs: [validate, setup-ssh, deploy-suricata, deploy-firewalld]
     if: always()
