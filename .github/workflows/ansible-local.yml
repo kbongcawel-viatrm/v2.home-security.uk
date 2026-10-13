@@ -23,6 +23,11 @@ concurrency:
   group: ansible-local-${{ github.ref }}
   cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash
+    working-directory: v2.home-security.uk
+
 jobs:
   apply-reviewed-playbooks:
     # Configure this label on the Fedora host's self-hosted Actions runner.

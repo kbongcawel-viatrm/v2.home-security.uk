@@ -85,6 +85,11 @@ concurrency:
   group: security-changes-${{ github.ref }}
   cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash
+    working-directory: v2.home-security.uk
+
 env:
   TARGET_HOST: ${{ secrets.TARGET_HOST }}
   TARGET_USER: ${{ secrets.TARGET_USER }}
