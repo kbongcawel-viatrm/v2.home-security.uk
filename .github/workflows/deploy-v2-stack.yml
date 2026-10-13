@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, fedora]
+    runs-on: [ubuntu-latest]
     env:
       CONTAINER_HOST: unix:///run/user/1000/podman/podman.sock
     timeout-minutes: 45
