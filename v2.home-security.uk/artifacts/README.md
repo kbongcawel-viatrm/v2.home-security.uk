@@ -55,16 +55,41 @@ AI-generated firewalld block requests.
 1. AI worker generates recommendations → OpenObserve `ai_recommendations` stream
 2. Human reviews recommendations and creates artifacts in this directory
 3. Human commits artifacts to repository
-4. `apply-host-security-changes.yml` workflow deploys artifacts to host:
+4. `apply-host-security-changes.yml` workflow deploys artifacts via SSH:
+   - Runs on GitHub-hosted runner (`ubuntu-latest`)
+   - Connects to target host via SSH using GitHub secrets
    - Validates playbooks and artifacts
    - Runs check mode (dry-run)
-   - Applies with `--become` on host-level runner
-5. Verify on host:
+   - Applies with `--become` over SSH
+5. Verify on target host:
    ```bash
-   sudo systemctl status suricata
-   sudo firewall-cmd --list-all
-   sudo tail -f /var/log/suricata/suricata.log
+   ssh user@target-host 'sudo systemctl status suricata'
+   ssh user@target-host 'sudo firewall-cmd --list-all'
+   ssh user@target-host 'sudo tail -f /var/log/suricata/suricata.log'
    ```
+
+### GitHub Secrets Required
+
+Configure these in **Settings → Secrets and variables → Actions**:
+
+| Secret | Description | Example |
+|--------|-------------|---------|
+| `TARGET_HOST` | Target Fedora host IP/hostname | `192.168.1.100` |
+| `TARGET_USER` | SSH user with sudo access | `kim` |
+| `TARGET_SSH_KEY` | SSH private key | `-----BEGIN OPENSSH...` |
+
+### Generating SSH Key
+
+```bash
+# On your local machine or target host
+ssh-keygen -t ed25519 -C "github-actions" -f ~/.ssh/github_actions
+
+# Copy public key to target host
+ssh-copy-id -i ~/.ssh/github_actions.pub user@target-host
+
+# Add private key to GitHub secrets as TARGET_SSH_KEY
+cat ~/.ssh/github_actions
+```
 
 ## Rollback
 

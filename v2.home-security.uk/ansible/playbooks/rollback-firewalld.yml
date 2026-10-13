@@ -14,8 +14,8 @@
 #     ansible/playbooks/rollback-firewalld.yml
 
 - name: Rollback firewalld changes
-  hosts: localhost
-  connection: local
+  hosts: target
+  # connection is set via inventory (local or ssh)
   gather_facts: false
   become: true
 

@@ -20,8 +20,8 @@
 # Rollback: Re-add the service/port manually or use firewall-cmd --add-service/--add-port
 
 - name: Block service or port using firewalld
-  hosts: localhost
-  connection: local
+  hosts: target
+  # connection is set via inventory (local or ssh)
   gather_facts: false
   become: true
 

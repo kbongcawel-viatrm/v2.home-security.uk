@@ -1,19 +1,24 @@
-name: Apply Host Security Changes
+name: Apply Security Changes (GitHub-Hosted)
 
-# This workflow runs on a HOST-LEVEL runner (not inside Toolbox) to deploy
-# security changes to host services (Suricata, firewalld).
+# This workflow runs on a GITHUB-HOSTED runner (ubuntu-latest) and connects
+# to the target Fedora host via SSH to deploy security changes.
 #
 # Architecture:
-#   1. deploy-v2-stack.yml (Toolbox runner) - deploys containers, generates artifacts
-#   2. apply-host-security-changes.yml (HOST runner) - deploys security changes to host
+#   1. deploy-v2-stack.yml (Toolbox/self-hosted) - deploys containers, generates artifacts
+#   2. apply-host-security-changes.yml (GitHub-hosted) - deploys security changes via SSH
 #
-# The host-level runner must be configured with a label like:
-#   [self-hosted, linux, fedora, host]
+# The GitHub-hosted runner connects to the target host via SSH using:
+#   - SSH private key stored in GitHub secrets (TARGET_SSH_KEY)
+#   - Target host address stored in GitHub secrets (TARGET_HOST)
+#   - Target user stored in GitHub secrets (TARGET_USER, default: current user)
 #
-# This runner runs directly on the Fedora host (not inside Toolbox), so it can:
-#   - Write to /var/lib/suricata/rules/
-#   - Reload suricata.service
-#   - Execute firewall-cmd with root privileges (--become)
+# Required GitHub Secrets:
+#   TARGET_HOST     - IP or hostname of the Fedora target host
+#   TARGET_USER     - SSH user on target host (with sudo access)
+#   TARGET_SSH_KEY  - SSH private key for authentication
+#
+# Required GitHub Variables (optional):
+#   TARGET_SSH_PORT - SSH port (default: 22)
 
 on:
   workflow_dispatch:
@@ -75,13 +80,19 @@ permissions:
   contents: read
 
 concurrency:
-  group: host-security-changes-${{ github.ref }}
+  group: security-changes-${{ github.ref }}
   cancel-in-progress: false
+
+env:
+  TARGET_HOST: ${{ secrets.TARGET_HOST }}
+  TARGET_USER: ${{ secrets.TARGET_USER }}
+  TARGET_PORT: ${{ vars.TARGET_SSH_PORT || '22' }}
+  ANSIBLE_HOST_KEY_CHECKING: "False"
 
 jobs:
   validate:
     name: Validate playbooks and artifacts
-    runs-on: [self-hosted, linux, fedora]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
       suricata_rules_present: ${{ steps.check-artifacts.outputs.suricata_rules_present }}
@@ -90,10 +101,15 @@ jobs:
       - name: Check out repository content
         uses: actions/checkout@v4
 
-      - name: Confirm Ansible is available
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Ansible and dependencies
         run: |
-          set -euo pipefail
-          command -v ansible-playbook
+          python3 -m pip install --upgrade pip
+          python3 -m pip install ansible-core PyYAML
           ansible-playbook --version
 
       - name: Check for artifacts
@@ -117,7 +133,7 @@ jobs:
           echo "suricata_rules_present=${suricata_present}" >> "$GITHUB_OUTPUT"
           echo "firewalld_changes_present=${firewalld_present}" >> "$GITHUB_OUTPUT"
 
-      - name: Validate local-only playbook policy
+      - name: Validate playbook policy
         run: python3 scripts/validate-local-playbooks.py ansible/playbooks
 
       - name: Syntax-check all playbooks
@@ -129,10 +145,10 @@ jobs:
           fi
           for playbook in "${playbooks[@]}"; do
             echo "Syntax-check: $playbook"
-            ansible-playbook --inventory 'localhost,' --connection local --limit localhost --syntax-check "$playbook"
+            ansible-playbook --inventory 'localhost,' --connection local --syntax-check "$playbook"
           done
 
-      - name: Upload artifacts for host-level deployment
+      - name: Upload artifacts for deployment
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -143,12 +159,102 @@ jobs:
             scripts/
           retention-days: 1
 
-  deploy-suricata:
-    name: Deploy Suricata rules (host-level)
+  setup-ssh:
+    name: Set up SSH connection to target host
     needs: validate
-    if: needs.validate.outputs.suricata_rules_present == 'true' && (inputs.deploy_suricata == true || inputs.simulate == false)
-    runs-on: [self-hosted, linux, fedora, host]
-    environment: host-security-apply
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ssh_ok: ${{ steps.test-ssh.outputs.ssh_ok }}
+    steps:
+      - name: Check required secrets
+        run: |
+          if [[ -z "$TARGET_HOST" ]]; then
+            echo "::error::TARGET_HOST secret is not set"
+            exit 1
+          fi
+          if [[ -z "$TARGET_USER" ]]; then
+            echo "::error::TARGET_USER secret is not set"
+            exit 1
+          fi
+          if [[ -z "${{ secrets.TARGET_SSH_KEY }}" ]]; then
+            echo "::error::TARGET_SSH_KEY secret is not set"
+            exit 1
+          fi
+          echo "Target: $TARGET_USER@$TARGET_HOST:$TARGET_PORT"
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.TARGET_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "$TARGET_PORT" "$TARGET_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          echo "SSH key configured"
+
+      - name: Test SSH connection
+        id: test-ssh
+        run: |
+          if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+             -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" "echo 'SSH connection successful'"; then
+            echo "ssh_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::SSH connection failed"
+            echo "ssh_ok=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Test sudo access on target
+        run: |
+          if ssh -o StrictHostKeyChecking=no \
+             -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" \
+             "sudo -n true 2>/dev/null && echo 'sudo NOPASSWD: OK' || echo 'sudo requires password'"; then
+            echo "Sudo check completed"
+          else
+            echo "::warning::Sudo check failed - ensure NOPASSWD is configured for --become"
+          fi
+
+      - name: Verify target host prerequisites
+        run: |
+          echo "=== Checking target host prerequisites ==="
+          ssh -o StrictHostKeyChecking=no -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" << 'EOF'
+          set -e
+          echo "Host: $(hostname)"
+          echo "OS: $(cat /etc/os-release | grep PRETTY_NAME)"
+          
+          # Check suricata
+          if command -v suricata &>/dev/null; then
+            echo "suricata: $(suricata --version 2>&1 | head -1)"
+          else
+            echo "suricata: NOT FOUND"
+          fi
+          
+          # Check firewall-cmd
+          if command -v firewall-cmd &>/dev/null; then
+            echo "firewall-cmd: $(firewall-cmd --version 2>&1)"
+          else
+            echo "firewall-cmd: NOT FOUND"
+          fi
+          
+          # Check systemd services
+          systemctl is-active suricata 2>/dev/null && echo "suricata.service: active" || echo "suricata.service: not active"
+          systemctl is-active firewalld 2>/dev/null && echo "firewalld.service: active" || echo "firewalld.service: not active"
+          
+          # Check directories
+          [[ -d /var/lib/suricata/rules ]] && echo "/var/lib/suricata/rules: exists" || echo "/var/lib/suricata/rules: NOT FOUND"
+          [[ -d /etc/suricata ]] && echo "/etc/suricata: exists" || echo "/etc/suricata: NOT FOUND"
+          [[ -d /var/log/suricata ]] && echo "/var/log/suricata: exists" || echo "/var/log/suricata: NOT FOUND"
+          
+          # Check write access
+          sudo -n test -w /var/lib/suricata/rules 2>/dev/null && echo "/var/lib/suricata/rules: writable" || echo "/var/lib/suricata/rules: not writable or sudo required"
+          EOF
+
+  deploy-suricata:
+    name: Deploy Suricata rules (via SSH)
+    needs: [validate, setup-ssh]
+    if: needs.validate.outputs.suricata_rules_present == 'true' && needs.setup-ssh.outputs.ssh_ok == 'true' && (inputs.deploy_suricata == true || inputs.simulate == false)
+    runs-on: ubuntu-latest
+    environment: security-apply
     timeout-minutes: 15
     steps:
       - name: Check out repository content
@@ -160,42 +266,34 @@ jobs:
           name: security-artifacts
           path: .
 
-      - name: Verify host-level access
+      - name: Set up Python and Ansible
         run: |
-          set -euo pipefail
-          echo "Runner is at host level: $(hostname)"
-          echo "User: $(id -un)"
-          if [[ ! -d /var/lib/suricata/rules ]]; then
-            echo "::error::Host-level access required: /var/lib/suricata/rules not accessible"
-            exit 1
-          fi
-          if ! command -v systemctl &>/dev/null; then
-            echo "::error::systemctl not available - host-level runner required"
-            exit 1
-          fi
-          if ! command -v suricata &>/dev/null; then
-            echo "::error::suricata not found - host-level runner required"
-            exit 1
-          fi
-          echo "Host-level access verified"
+          python3 -m pip install --upgrade pip
+          python3 -m pip install ansible-core PyYAML
 
-      - name: Verify sudo access for --become
+      - name: Set up SSH key
         run: |
-          set -euo pipefail
-          sudo -n true 2>/dev/null || {
-            echo "::error::Non-interactive sudo required for --become."
-            exit 1
-          }
-          echo "Sudo access verified"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.TARGET_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "$TARGET_PORT" "$TARGET_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Create Ansible inventory
+        run: |
+          cat > inventory.ini << EOF
+          [target]
+          $TARGET_HOST ansible_host=$TARGET_HOST ansible_user=$TARGET_USER ansible_port=$TARGET_PORT ansible_ssh_private_key_file=~/.ssh/id_ed25519
+          EOF
+          cat inventory.ini
 
       - name: Check mode preview (dry-run)
         run: |
           set -euo pipefail
           echo "=== Check mode preview: deploy-suricata-rules.yml ==="
           ansible-playbook \
-            --inventory 'localhost,' \
-            --connection local \
-            --limit localhost \
+            --inventory inventory.ini \
+            --limit target \
             --become \
             --check --diff \
             ansible/playbooks/deploy-suricata-rules.yml
@@ -206,24 +304,38 @@ jobs:
           set -euo pipefail
           echo "=== Applying: deploy-suricata-rules.yml ==="
           ansible-playbook \
-            --inventory 'localhost,' \
-            --connection local \
-            --limit localhost \
+            --inventory inventory.ini \
+            --limit target \
             --become \
             ansible/playbooks/deploy-suricata-rules.yml
           echo ""
           echo "=== Suricata rules deployed and service reloaded ==="
 
+      - name: Verify deployment
+        if: ${{ inputs.simulate == false }}
+        run: |
+          echo "=== Verifying Suricata deployment ==="
+          ssh -o StrictHostKeyChecking=no -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" << 'EOF'
+          echo "Rules file:"
+          sudo ls -la /var/lib/suricata/rules/suricata.rules
+          echo ""
+          echo "Suricata status:"
+          sudo systemctl status suricata --no-pager | head -10
+          echo ""
+          echo "Recent logs:"
+          sudo tail -5 /var/log/suricata/suricata.log 2>/dev/null || echo "No suricata.log found"
+          EOF
+
       - name: Simulation completed
         if: ${{ inputs.simulate != false }}
-        run: echo "Simulation passed; --become apply step was intentionally skipped."
+        run: echo "Simulation passed; apply step was intentionally skipped."
 
   deploy-firewalld:
-    name: Apply firewalld changes (host-level)
-    needs: validate
-    if: (needs.validate.outputs.firewalld_changes_present == 'true' || inputs.blocked_ip != '') && (inputs.deploy_firewalld == true || inputs.simulate == false)
-    runs-on: [self-hosted, linux, fedora, host]
-    environment: host-security-apply
+    name: Apply firewalld changes (via SSH)
+    needs: [validate, setup-ssh]
+    if: (needs.validate.outputs.firewalld_changes_present == 'true' || inputs.blocked_ip != '') && needs.setup-ssh.outputs.ssh_ok == 'true' && (inputs.deploy_firewalld == true || inputs.simulate == false)
+    runs-on: ubuntu-latest
+    environment: security-apply
     timeout-minutes: 15
     steps:
       - name: Check out repository content
@@ -235,29 +347,26 @@ jobs:
           name: security-artifacts
           path: .
 
-      - name: Verify host-level access
+      - name: Set up Python and Ansible
         run: |
-          set -euo pipefail
-          echo "Runner is at host level: $(hostname)"
-          echo "User: $(id -un)"
-          if ! command -v firewall-cmd &>/dev/null; then
-            echo "::error::firewall-cmd not found - host-level runner required"
-            exit 1
-          fi
-          if ! systemctl is-active firewalld &>/dev/null; then
-            echo "::error::firewalld service is not active"
-            exit 1
-          fi
-          echo "Host-level access verified"
+          python3 -m pip install --upgrade pip
+          python3 -m pip install ansible-core PyYAML
 
-      - name: Verify sudo access for --become
+      - name: Set up SSH key
         run: |
-          set -euo pipefail
-          sudo -n true 2>/dev/null || {
-            echo "::error::Non-interactive sudo required for --become."
-            exit 1
-          }
-          echo "Sudo access verified"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.TARGET_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "$TARGET_PORT" "$TARGET_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Create Ansible inventory
+        run: |
+          cat > inventory.ini << EOF
+          [target]
+          $TARGET_HOST ansible_host=$TARGET_HOST ansible_user=$TARGET_USER ansible_port=$TARGET_PORT ansible_ssh_private_key_file=~/.ssh/id_ed25519
+          EOF
+          cat inventory.ini
 
       - name: Block IP via Ansible (dry-run)
         if: ${{ inputs.blocked_ip != '' }}
@@ -265,9 +374,8 @@ jobs:
           set -euo pipefail
           echo "=== Check mode preview: block-ip-firewalld.yml ==="
           ansible-playbook \
-            --inventory 'localhost,' \
-            --connection local \
-            --limit localhost \
+            --inventory inventory.ini \
+            --limit target \
             --become \
             --check --diff \
             --extra-vars "block_ip=${{ inputs.blocked_ip }} zone=${{ inputs.block_zone }}" \
@@ -279,9 +387,8 @@ jobs:
           set -euo pipefail
           echo "=== Applying: block-ip-firewalld.yml ==="
           ansible-playbook \
-            --inventory 'localhost,' \
-            --connection local \
-            --limit localhost \
+            --inventory inventory.ini \
+            --limit target \
             --become \
             --extra-vars "block_ip=${{ inputs.blocked_ip }} zone=${{ inputs.block_zone }} reason='AI-recommended block'" \
             ansible/playbooks/block-ip-firewalld.yml
@@ -289,11 +396,30 @@ jobs:
 
       - name: Process blocks from artifacts (dry-run)
         if: needs.validate.outputs.firewalld_changes_present == 'true'
-        run: python3 scripts/process-firewalld-blocks.py --check
+        run: |
+          set -euo pipefail
+          python3 scripts/process-firewalld-blocks.py --check --inventory inventory.ini
 
       - name: Process blocks from artifacts (apply)
         if: ${{ inputs.simulate == false && needs.validate.outputs.firewalld_changes_present == 'true' }}
-        run: python3 scripts/process-firewalld-blocks.py
+        run: |
+          set -euo pipefail
+          python3 scripts/process-firewalld-blocks.py --inventory inventory.ini
+
+      - name: Verify firewalld changes
+        if: ${{ inputs.simulate == false }}
+        run: |
+          echo "=== Verifying firewalld changes ==="
+          ssh -o StrictHostKeyChecking=no -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" << 'EOF'
+          echo "Active zones:"
+          sudo firewall-cmd --get-active-zones
+          echo ""
+          echo "Rich rules:"
+          sudo firewall-cmd --list-rich-rules
+          echo ""
+          echo "Firewalld status:"
+          sudo systemctl status firewalld --no-pager | head -5
+          EOF
 
       - name: Simulation completed
         if: ${{ inputs.simulate != false }}
@@ -301,14 +427,17 @@ jobs:
 
   summary:
     name: Deployment summary
-    needs: [validate, deploy-suricata, deploy-firewalld]
+    needs: [validate, setup-ssh, deploy-suricata, deploy-firewalld]
     if: always()
-    runs-on: [self-hosted, linux, fedora]
+    runs-on: ubuntu-latest
     steps:
       - name: Print summary
         run: |
-          echo "=== Host Security Changes Summary ==="
+          echo "=== Security Changes Deployment Summary ==="
+          echo "Target host: $TARGET_USER@$TARGET_HOST:$TARGET_PORT"
+          echo ""
           echo "Validation: ${{ needs.validate.result }}"
+          echo "SSH Setup: ${{ needs.setup-ssh.result }}"
           echo "Suricata deployment: ${{ needs.deploy-suricata.result }}"
           echo "Firewalld deployment: ${{ needs.deploy-firewalld.result }}"
           echo ""
@@ -319,7 +448,7 @@ jobs:
             echo "PASS: Firewalld changes applied"
           fi
           echo ""
-          echo "Verify on host:"
-          echo "  sudo systemctl status suricata"
-          echo "  sudo firewall-cmd --list-all"
-          echo "  sudo tail -f /var/log/suricata/suricata.log"
+          echo "Verify on target host:"
+          echo "  ssh $TARGET_USER@$TARGET_HOST 'sudo systemctl status suricata'"
+          echo "  ssh $TARGET_USER@$TARGET_HOST 'sudo firewall-cmd --list-all'"
+          echo "  ssh $TARGET_USER@$TARGET_HOST 'sudo tail -f /var/log/suricata/suricata.log'"

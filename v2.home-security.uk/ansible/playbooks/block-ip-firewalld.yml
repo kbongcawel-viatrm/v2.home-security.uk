@@ -15,8 +15,8 @@
 # Rollback: Run rollback-firewalld.yml with the same blocked_ip
 
 - name: Block IP address using firewalld
-  hosts: localhost
-  connection: local
+  hosts: target
+  # connection is set via inventory (local or ssh)
   gather_facts: false
   become: true
 

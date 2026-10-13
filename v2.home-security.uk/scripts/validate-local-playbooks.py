@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Reject local deployment playbooks that can target remote machines or broaden scope.
+"""Validate deployment playbooks for security and scope restrictions.
 
 This validator allows playbooks that:
-- Target localhost only with connection: local
+- Target a specific host group: 'target' (for SSH) or 'localhost' (for local)
 - Deploy Suricata rules (copy to /var/lib/suricata/rules/suricata.rules)
 - Reload Suricata service (ansible.builtin.service)
 - Manage firewalld (ansible.builtin.command with validated firewall-cmd)
 - Validate with stat/assert/debug modules
 
-Features:
-- Supports Jinja2 templating ({{ var }}) in commands and paths
-- Checks become at both play and task level
-- Strict validation of command content (no shell metacharacters, no dangerous patterns)
+Forbidden:
+- shell, raw, script (command is allowed only with strict validation)
+- Wildcard hosts (all, *, ungrouped)
+- Delegation, dynamic includes, lookups
+- Arbitrary paths or privilege escalation beyond --become
 """
 import sys
 import re
@@ -32,29 +33,29 @@ ALLOWED_TASK_MODULES = {
     "ansible.builtin.command",
 }
 
+# Allowed host targets (specific groups only, no wildcards)
+ALLOWED_HOST_TARGETS = {"target", "localhost"}
+FORBIDDEN_HOST_PATTERNS = {"all", "*", "ungrouped", "webservers", "dbservers"}
+
 RULES_DESTINATION = "/var/lib/suricata/rules/suricata.rules"
 RULES_SOURCE = "../../artifacts/suricata.rules"
 
-# Patterns for commands with Jinja2 templating support
-# {{ var }} is replaced with a placeholder for validation
+# Allowed command patterns (strict validation)
 ALLOWED_COMMAND_PATTERNS = [
-    # Suricata test mode
     re.compile(r'^suricata\s+-T\s+-c\s+/etc/suricata/suricata\.yaml(\s+-S\s+\S+)?$'),
-    # firewall-cmd with templated zone
     re.compile(r'^firewall-cmd\s+--zone=\{\{\s*\w+\s*\}\}\s+--(add|remove)-rich-rule=.*$'),
     re.compile(r'^firewall-cmd\s+--zone=\{\{\s*\w+\s*\}\}\s+--(add|remove)-(service|port)=.*$'),
     re.compile(r'^firewall-cmd\s+--zone=\{\{\s*\w+\s*\}\}\s+--permanent\s+--(add|remove)-(rich-rule|service|port)=.*$'),
     re.compile(r'^firewall-cmd\s+--zone=\{\{\s*\w+\s*\}\}\s+--query-rich-rule=.*$'),
-    # Literal zone names
     re.compile(r'^firewall-cmd\s+--zone=[A-Za-z0-9_-]{1,64}\s+--(add|remove)-rich-rule=.*$'),
     re.compile(r'^firewall-cmd\s+--zone=[A-Za-z0-9_-]{1,64}\s+--(add|remove)-(service|port)=.*$'),
     re.compile(r'^firewall-cmd\s+--zone=[A-Za-z0-9_-]{1,64}\s+--permanent\s+--(add|remove)-(rich-rule|service|port)=.*$'),
     re.compile(r'^firewall-cmd\s+--zone=[A-Za-z0-9_-]{1,64}\s+--query-rich-rule=.*$'),
 ]
 
-# Dangerous patterns that must never appear (after template resolution simulation)
+# Dangerous patterns that must never appear
 DANGEROUS_COMMAND_PATTERNS = [
-    re.compile(r'[;&|`$(){}]'),           # Shell metacharacters (excluding {{ }} which we handle)
+    re.compile(r'[;&|`$(){}]'),
     re.compile(r'--panic'),
     re.compile(r'--flush'),
     re.compile(r'--remove-all'),
@@ -71,7 +72,6 @@ DANGEROUS_COMMAND_PATTERNS = [
 ALLOWED_SERVICES = {"suricata", "firewalld"}
 ALLOWED_SERVICE_STATES = {"reloaded", "restarted", "started", "stopped"}
 
-# Jinja2 template pattern
 JINJA_PATTERN = re.compile(r'\{\{[^}]+\}\}')
 
 
@@ -79,28 +79,19 @@ def resolve_templates(cmd):
     """Replace Jinja2 templates with safe placeholders for validation."""
     if not isinstance(cmd, str):
         return cmd
-    # Replace {{ var }} with a safe placeholder
-    resolved = JINJA_PATTERN.sub('__VAR__', cmd)
-    return resolved
+    return JINJA_PATTERN.sub('__VAR__', cmd)
 
 
 def validate_command(cmd):
     """Validate that a command matches allowed patterns and has no dangerous content."""
     if not isinstance(cmd, str):
         return False
-    # Resolve templates first
     resolved = resolve_templates(cmd)
-    # Check for dangerous patterns (on resolved command)
     for pattern in DANGEROUS_COMMAND_PATTERNS:
         if pattern.search(resolved):
             return False
-    # Check if it matches any allowed pattern (on resolved command)
     for pattern in ALLOWED_COMMAND_PATTERNS:
-        if pattern.match(resolved):
-            return True
-    # Also try matching the original (with templates)
-    for pattern in ALLOWED_COMMAND_PATTERNS:
-        if pattern.match(cmd):
+        if pattern.match(resolved) or pattern.match(cmd):
             return True
     return False
 
@@ -109,12 +100,28 @@ def is_trusted_path(path):
     """Check if a path is trusted (literal or uses known variables)."""
     if not isinstance(path, str):
         return False
-    # Allow Jinja2 templates that reference known variables
     if JINJA_PATTERN.search(path):
         return True
-    # Check against known safe paths
     safe_paths = {RULES_DESTINATION, RULES_SOURCE, "/var/lib/suricata/rules"}
     return path in safe_paths
+
+
+def validate_hosts(hosts):
+    """Validate that hosts target is specific (no wildcards)."""
+    if not isinstance(hosts, str):
+        return False
+    hosts = hosts.strip()
+    if hosts in FORBIDDEN_HOST_PATTERNS:
+        return False
+    if hosts in ALLOWED_HOST_TARGETS:
+        return True
+    # Allow host patterns like target[0] or specific hostnames
+    if re.match(r'^target(\[\d+\])?$', hosts):
+        return True
+    # Reject wildcards and 'all'
+    if '*' in hosts or 'all' in hosts.lower():
+        return False
+    return False
 
 
 def validate(path: Path) -> list[str]:
@@ -131,13 +138,18 @@ def validate(path: Path) -> list[str]:
         if not isinstance(play, dict):
             errors.append(f"{location}: expected mapping")
             continue
-        if play.get("hosts") != "localhost":
-            errors.append(f"{location}: hosts must be exactly localhost")
-        if play.get("connection") != "local":
-            errors.append(f"{location}: connection must be explicitly local")
+        
+        # Validate hosts target
+        hosts = play.get("hosts")
+        if not validate_hosts(str(hosts) if hosts else ""):
+            errors.append(f"{location}: hosts must be 'target' or 'localhost' (got: {hosts})")
+        
+        # Connection is optional (set via inventory)
+        if "connection" in play and play["connection"] not in ("local", "ssh"):
+            errors.append(f"{location}: connection must be 'local' or 'ssh'")
         if "ansible_connection" in play.get("vars", {}):
-            if play["vars"]["ansible_connection"] != "local":
-                errors.append(f"{location}: ansible_connection must be local")
+            if play["vars"]["ansible_connection"] not in ("local", "ssh"):
+                errors.append(f"{location}: ansible_connection must be 'local' or 'ssh'")
         
         # Play-level become
         play_become = play.get("become", False)
@@ -177,7 +189,6 @@ def validate(path: Path) -> list[str]:
                     continue
                 dest = args.get("dest", "")
                 src = args.get("src", "")
-                # Allow templated paths or known safe paths
                 if not is_trusted_path(dest):
                     errors.append(f"{task_location}: copy destination must be {RULES_DESTINATION} or use trusted variables")
                 if not is_trusted_path(src):
@@ -189,7 +200,6 @@ def validate(path: Path) -> list[str]:
                     errors.append(f"{task_location}: service args must be a mapping")
                     continue
                 service_name = args.get("name", "")
-                # Allow templated service names or known services
                 if not JINJA_PATTERN.search(str(service_name)) and service_name not in ALLOWED_SERVICES:
                     errors.append(f"{task_location}: service must be one of {', '.join(sorted(ALLOWED_SERVICES))} or use variables")
                 state = args.get("state")
@@ -224,7 +234,7 @@ def main() -> int:
     if failures:
         print("\n".join(failures), file=sys.stderr)
         return 1
-    print(f"Local-only policy passed for {len(files)} playbook(s)")
+    print(f"Playbook policy passed for {len(files)} playbook(s)")
     return 0
 
 

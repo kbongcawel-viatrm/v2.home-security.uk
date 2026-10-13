@@ -11,8 +11,8 @@
 # Rollback: Remove the deployed rules file and reload Suricata again
 
 - name: Deploy reviewed Suricata rules and reload Suricata
-  hosts: localhost
-  connection: local
+  hosts: target
+  # connection is set via inventory (local or ssh)
   gather_facts: false
   become: true
 

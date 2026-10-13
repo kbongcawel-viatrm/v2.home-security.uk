@@ -43,13 +43,20 @@ Security changes are deployed by a **two-stage workflow**:
 - The AI worker runs inside containers and generates recommendations
 - Recommendations are stored in OpenObserve `ai_recommendations` stream
 
-**Stage 2: apply-host-security-changes.yml** (Host-level runner: `[self-hosted, linux, fedora, host]`)
-- Runs directly on the Fedora host (NOT inside Toolbox)
+**Stage 2: apply-host-security-changes.yml** (GitHub-hosted runner: `ubuntu-latest`)
+- Runs on GitHub-hosted runner (no self-hosted runner needed for security)
+- Connects to target Fedora host via SSH
+- Uses GitHub secrets: `TARGET_HOST`, `TARGET_USER`, `TARGET_SSH_KEY`
 - Validates playbooks with `scripts/validate-local-playbooks.py`
 - Runs check mode (dry-run) with `--check --diff`
-- Applies changes with `--become` for root permissions
+- Applies changes with `--become` over SSH for root permissions
 - Deploys Suricata rules and reloads suricata.service
 - Applies firewalld rich rules to block IPs/services/ports
+
+**Required GitHub Secrets:**
+- `TARGET_HOST` - IP or hostname of the Fedora target host
+- `TARGET_USER` - SSH user on target host (with sudo access)
+- `TARGET_SSH_KEY` - SSH private key for authentication
 
 ### Ansible Playbooks
 
@@ -65,16 +72,24 @@ Reviewed artifacts in `artifacts/`:
 - `suricata.rules` - AI-generated Suricata detection rules
 - `firewalld-blocks.json` - AI-generated firewalld block requests
 
-### Host-Level Runner Requirements
+### GitHub-Hosted Runner Requirements
 
-The `apply-host-security-changes.yml` workflow requires a separate runner:
-- Label: `[self-hosted, linux, fedora, host]`
-- Runs directly on Fedora host (not inside Toolbox)
-- Non-interactive sudo access for `--become`
-- Access to `/var/lib/suricata/rules/`, `systemctl`, `firewall-cmd`, `suricata`
+The `apply-host-security-changes.yml` workflow runs on GitHub-hosted runners (`ubuntu-latest`).
+No self-hosted runner is required for security deployments.
+
+**GitHub Secrets:**
+- `TARGET_HOST` - IP or hostname of the Fedora target host
+- `TARGET_USER` - SSH user on target host (with sudo access)
+- `TARGET_SSH_KEY` - SSH private key for authentication
+
+**Target Host Requirements:**
+- SSH server running and accessible
+- User with sudo access (NOPASSWD recommended)
+- Suricata installed with `/var/lib/suricata/rules/` directory
+- firewalld installed and active
 
 A human must review artifacts, commit them to the repository, and trigger the
-host-level workflow. The worker never executes changes directly.
+workflow. The worker never executes changes directly.
 
 The optional `.github/workflows/ansible-local.yml` workflow operates only on reviewed playbooks committed under `ansible/playbooks/` and requires the non-empty reviewed artifact `artifacts/suricata.rules`; it does not import AI recommendations automatically. This workflow's allowed deployment action is copying that artifact to `/var/lib/suricata/rules/suricata.rules`. It does not alter Suricata configuration or reload/restart Suricata; after apply, a human must review the deployed rules and manually reload Suricata on the host later. Firewall-cmd rules are not applied by the workflow; any approved firewall commands must be reviewed and run manually with `sudo` on the host. Workflow dispatch defaults to simulation (policy, syntax, and check-mode preview only). Applying requires explicitly disabling simulation and approving the configured `ansible-local-apply` GitHub Environment; the apply command uses `--become` on the Fedora self-hosted runner, so the runner account must have suitable non-interactive sudo authorization. Playbooks are repeated on each apply run and should be idempotent to correct drift. No reviewed rules artifact/playbook is currently available, so no deployment or runner simulation has been verified.
 

@@ -27,20 +27,41 @@ GitHub Actions on a host-level runner (not inside Toolbox).
                             v
 +---------------------------------------------------------------+
 |  apply-host-security-changes.yml (GitHub Actions)             |
-|  - Runs on HOST-LEVEL runner: [self-hosted, linux, fedora, host]
+|  - Runs on GITHUB-HOSTED runner: ubuntu-latest                |
+|  - Connects to target Fedora host via SSH                     |
+|  - Uses secrets: TARGET_HOST, TARGET_USER, TARGET_SSH_KEY     |
 |  - Validates playbooks (validate-local-playbooks.py)          |
 |  - Runs check mode (dry-run)                                  |
-|  - Applies with --become flag for root permissions            |
+|  - Applies with --become over SSH for root permissions        |
 +---------------------------------------------------------------+
                             |
-                            v
+                            v (SSH)
 +---------------------------------------------------------------+
-|  Host Services (modified by Ansible)                          |
+|  Target Host Services (modified by Ansible)                   |
 |  - Suricata: rules deployed to /var/lib/suricata/rules/       |
 |              and suricata.service reloaded                    |
 |  - Firewalld: rich rules added to block IPs/services/ports    |
 +---------------------------------------------------------------+
 ```
+
+### GitHub-Hosted Runner Setup
+
+The workflow runs on `ubuntu-latest` and connects to the target host via SSH.
+
+**Required GitHub Secrets:**
+- `TARGET_HOST` - IP or hostname of the Fedora target host
+- `TARGET_USER` - SSH user on target host (with sudo access)
+- `TARGET_SSH_KEY` - SSH private key for authentication
+
+**Required GitHub Variables (optional):**
+- `TARGET_SSH_PORT` - SSH port (default: 22)
+
+**Target Host Requirements:**
+- SSH server running and accessible
+- User with sudo access (NOPASSWD recommended for --become)
+- Suricata installed with rules directory at `/var/lib/suricata/rules/`
+- firewalld installed and active
+- Ansible-compatible Python on target
 
 ## Playbook Types
 
@@ -118,14 +139,25 @@ Required metadata fields:
 - Human review required before deployment
 - Syntax validation is not proof of correctness or runtime safety
 
-## Host-Level Runner Requirements
+## GitHub-Hosted Runner Requirements
 
-The `apply-host-security-changes.yml` workflow requires a host-level runner with:
-- Label: `[self-hosted, linux, fedora, host]`
-- Runs directly on Fedora host (NOT inside Toolbox)
-- Non-interactive sudo access for `--become`
-- Access to:
-  - `/var/lib/suricata/rules/` (write)
-  - `systemctl` (for service reload)
-  - `firewall-cmd` (for firewall management)
-  - `suricata` binary (for config validation)
+The `apply-host-security-changes.yml` workflow runs on GitHub-hosted runners (`ubuntu-latest`).
+No self-hosted runner is required for security deployments.
+
+**GitHub Secrets Configuration:**
+```
+TARGET_HOST=192.168.1.100        # Target Fedora host IP/hostname
+TARGET_USER=kim                  # SSH user with sudo access
+TARGET_SSH_KEY=-----BEGIN...     # SSH private key (ed25519 recommended)
+```
+
+**Target Host Requirements:**
+- SSH server running (`sudo systemctl enable --now sshd`)
+- User with sudo access (configure NOPASSWD in /etc/sudoers.d/)
+- Suricata installed: `sudo dnf install suricata`
+- firewalld installed and active: `sudo systemctl enable --now firewalld`
+- Python 3 on target (for Ansible modules)
+
+**Playbook Host Target:**
+- Playbooks use `hosts: target` (not localhost)
+- Connection type is set via inventory (SSH for remote, local for localhost)
