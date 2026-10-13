@@ -10,23 +10,64 @@ A small Podman/Compose stack built around host journald and native Suricata logs
 | `fluent-bit` | Forwards Suricata EVE JSON and host journal records | None |
 | `openobserve` | Search, dashboards and log storage | `127.0.0.1:5080` |
 | `ollama` | Local LLM inference | Internal network only |
-| `security-ai` | Periodically analyzes new alerts and stores recommendations | None |
+| `security-ai` | Periodically analyzes new security, kernel, and OS boot-log events and stores recommendations | None |
 
 OpenObserve streams used by the current stack:
-- `security_logs` receives host-journal and Suricata records from Fluent Bit.
+- `security_logs` receives host-journal and Suricata records from Fluent Bit, including `/var/log/boot.log` lines when that host file exists.
+- `kernel_logs` receives journald records marked with `_TRANSPORT=kernel` (the host's kernel message stream, comparable to `dmesg`).
+- `firewall_logs` receives a routed copy of journald records whose `_SYSTEMD_UNIT` is `firewalld.service`.
+- `container_logs` receives a routed copy of journald records with Podman's `CONTAINER_ID_FULL` field. This depends on Podman using journald for container logs; the default log driver can vary by host configuration.
+- `security_log_archive` is a persistent Podman named volume receiving a local file-output copy of records processed by Fluent Bit, including Suricata and journald records.
 - `ai_recommendations` is the configured destination for successful AI analysis writes. OpenObserve creates it only after the worker successfully submits its first recommendation; it may not exist yet.
 
 An existing `wazuh_alerts` stream may remain in the OpenObserve data volume from the former Wazuh setup. It is historical data: the current Compose stack does not ingest Wazuh alerts or write to that stream. The former Wazuh volumes were preserved separately.
 
 ## Event pipeline
 
-1. Native Suricata captures traffic on the configured host interface and writes `/var/log/suricata/eve.json`; host services write to journald.
-2. Fluent Bit tails Suricata EVE JSON and reads host journal records, tagging events with their source and forwarding both to `security_logs`.
-3. `security-ai` queries a bounded recent time window from OpenObserve and submits new records to Ollama.
+1. Native Suricata captures traffic on the configured host interface and writes `/var/log/suricata/eve.json`; host services and kernel messages are available from journald. Fluent Bit tails EVE JSON, Suricata text logs, and `/var/log/boot.log` if present.
+2. Fluent Bit reads host journal records, routes `_TRANSPORT=kernel` records to `kernel_logs`, and sends `/var/log/boot.log` records to `security_logs` with `source=host-bootlog`. Suricata records are marked `source=suricata`, while general host-journal records also flow to `security_logs`; journald records matching firewalld or Podman's container metadata are rerouted to `firewall_logs` or `container_logs` respectively. Records processed by Fluent Bit are also copied to `security_log_archive`.
+3. `security-ai` queries each configured OpenObserve stream independently with a small overlapping time window, deduplicates repeated results using stable event references, and applies a per-stream quota before producing a bounded batch for Ollama. The overlap reduces boundary misses; recommendations include per-stream and combined-limit warnings if query results reach their caps. Cursor state and recent references live in `security_ai_state`. The model examines Suricata, host boot and kernel records for supported trends, startup changes, and telemetry-integrity indicators, with explicit caution not to treat missing records alone as proof of tampering.
 4. The worker writes the model's structured findings and proposed rule/configuration changes to the `ai_recommendations` stream.
 5. A human reviews proposed changes, tests them in a controlled environment, commits approved changes to version control, deploys them, and verifies the resulting events.
 
-The AI worker is advisory only. It does not modify or reload live security rules, or run response actions. This lightweight setup is log collection and analysis, not Wazuh-equivalent endpoint monitoring or agent management.
+The AI worker is advisory only. It does not modify or reload live security rules, run response actions, or execute Ansible. Recommendations may include narrow Suricata `alert` rules, firewalld runtime-addition argument arrays, and bounded Ansible playbook YAML drafts. An Ansible-focused authoring module uses concise local guidance, runs structural/allowlist checks and `ansible-playbook --syntax-check` in an isolated temporary directory, and includes only passing proposals. Ollama is prompted to produce Ansible-formatted suggestions; this is not model training or persistent learning. The worker accepts only playbook drafts tied to evidence references, with every play explicitly restricted to `hosts: localhost` and `connection: local`, and using an allowlist of built-in modules; shell/command/raw tasks and arbitrary roles are rejected. These are unapplied drafts. A human must check assumptions, local paths, privilege escalation, rule syntax, expected impact, and rollback. Syntax validation is not proof of correctness or runtime safety: test using `--check --diff` in a safe environment before considering manual execution; check mode does not guarantee every module is side-effect-free.
+
+The optional `.github/workflows/ansible-local.yml` workflow operates only on reviewed playbooks committed under `ansible/playbooks/` and requires the non-empty reviewed artifact `artifacts/suricata.rules`; it does not import AI recommendations automatically. This workflow's allowed deployment action is copying that artifact to `/var/lib/suricata/rules/suricata.rules`. It does not alter Suricata configuration or reload/restart Suricata; after apply, a human must review the deployed rules and manually reload Suricata on the host later. Firewall-cmd rules are not applied by the workflow; any approved firewall commands must be reviewed and run manually with `sudo` on the host. Workflow dispatch defaults to simulation (policy, syntax, and check-mode preview only). Applying requires explicitly disabling simulation and approving the configured `ansible-local-apply` GitHub Environment; the apply command uses `--become` on the Fedora self-hosted runner, so the runner account must have suitable non-interactive sudo authorization. Playbooks are repeated on each apply run and should be idempotent to correct drift. No reviewed rules artifact/playbook is currently available, so no deployment or runner simulation has been verified.
+
+### Persistent log archive and dashboards
+
+`security_log_archive` is mounted into Fluent Bit at `/var/log/security-archive`. Fluent Bit's file output writes all routed records to `fluent-bit-events.jsonl` in its built-in file-output format; the filename is for identification and does not promise strict JSON Lines encoding. Its named volume survives ordinary Compose stop/remove and container recreation. OpenObserve independently retains its indexed data in `openobserve_data`. These two stores serve different purposes: OpenObserve is the interactive search/dashboard store, and the archive is a local copy for recovery or offline processing. Both can grow over time; monitor free disk and back up important data. `podman-compose down -v` deletes named volumes, including both stores.
+
+The `fluent-bit` service mounts `${BOOT_LOG_PATH:-/var/log/boot.log}` read-only at `/host/boot.log` and tails it into `security_logs`. `/var/log/boot.log` is distro- and configuration-dependent; on systems without the file the input will be idle and no boot.log events will appear. Kernel messages are collected from the mounted system journal where accessible and routed from `_TRANSPORT=kernel` to `kernel_logs`; this is not an invocation of `dmesg`, and access/history depends on journald configuration and permissions. Both streams are included in AI analysis.
+
+In OpenObserve, choose the `security_logs` stream and create panels from queries such as:
+
+```sql
+-- Event volume over time (set the panel interval to 1 minute or 5 minutes)
+SELECT histogram(_timestamp, '5 minutes') AS time, count(*) AS events
+FROM "security_logs"
+WHERE source = 'suricata'
+GROUP BY time ORDER BY time
+
+-- Event-type distribution
+SELECT event_type, count(*) AS events
+FROM "security_logs"
+WHERE source = 'suricata'
+GROUP BY event_type ORDER BY events DESC
+
+-- Alerts by signature and severity
+SELECT alert.signature AS signature, alert.severity AS severity, count(*) AS events
+FROM "security_logs"
+WHERE source = 'suricata' AND event_type = 'alert'
+GROUP BY signature, severity ORDER BY events DESC
+
+-- Suricata stats snapshots (EVE event_type=stats)
+SELECT * FROM "security_logs"
+WHERE source = 'suricata' AND event_type = 'stats'
+ORDER BY _timestamp DESC
+```
+
+Use OpenObserve's SQL editor to validate queries against the actual schema, then add each result as a panel and save them into a dashboard. Suricata `stats` events are the primary performance/traffic counters; the Fluent Bit configuration also enables its internal storage metrics, but does not currently export a Prometheus endpoint. Exact panel API provisioning is not included, to avoid coupling to a particular OpenObserve release's dashboard JSON format.
 
 ## Prerequisites and important limitations
 
@@ -102,6 +143,22 @@ run0 suricata -T -c /etc/suricata/suricata.yaml
 run0 tail -n 5 /var/log/suricata/eve.json
 ```
 
+### Boot-time diagnostic log
+
+An optional read-only user systemd unit captures Podman status, configured log drivers, the last 100 Fluent Bit and AI-worker log lines, and Suricata service status after a 30-second boot delay. It appends to `$XDG_STATE_HOME/v2-home-security/boot-diagnostics.log` (normally `~/.local/state/v2-home-security/boot-diagnostics.log`) with mode `600`, keeping one rotated copy when the current file reaches 5 MiB. Container logs can contain sensitive data; protect this file.
+
+Install and enable it for the account that owns the rootless Podman containers:
+
+```bash
+install -Dm755 scripts/collect-boot-logs.sh "$HOME/.local/bin/collect-v2-home-security-boot-logs"
+install -Dm644 scripts/systemd/v2-home-security-boot-diagnostics.service \
+  "$HOME/.config/systemd/user/v2-home-security-boot-diagnostics.service"
+systemctl --user daemon-reload
+systemctl --user enable v2-home-security-boot-diagnostics.service
+```
+
+For the user unit to run at system boot before interactive login, enable lingering for the account using the host's administrative mechanism (for example, `sudo loginctl enable-linger "$USER"`). Review output with `less "$HOME/.local/state/v2-home-security/boot-diagnostics.log"` or `journalctl --user -u v2-home-security-boot-diagnostics.service`.
+
 Open `http://127.0.0.1:5080` and sign in with the credentials in `.env`.
 
 ## Verify ingestion
@@ -124,8 +181,8 @@ The script uses the running `security-ai` container's OpenObserve connection set
    podman ps --filter name=fluent-bit
    podman exec fluent-bit sh -c 'test -r /var/log/suricata/eve.json && echo readable'
    ```
-3. In OpenObserve, inspect the `security_logs` stream for records with `source=suricata` or `source=host-journal`. The stream is created upon first ingestion.
-4. The worker only creates `ai_recommendations` after it successfully queries new `security_logs`, completes an Ollama analysis, and writes the result. Check `podman logs --tail 100 security-ai` for `submitted AI analysis...`; `no new security logs to analyze` means there was no analysis to write in that cycle. An `analysis cycle failed` message means the stream will not be created by that attempt; resolve the logged OpenObserve/Ollama connectivity or authentication error and check again after a successful cycle.
+3. In OpenObserve, inspect `security_logs` for `source=suricata` and `source=host-journal`; inspect `firewall_logs` for `source=firewalld` and `container_logs` for `source=podman-container`. Each stream is created upon first ingestion. Container log routing requires journald-backed Podman logs with the `CONTAINER_ID_FULL` field; other log drivers are not tailed by this stack.
+4. The worker only creates `ai_recommendations` after it successfully queries new events from its input streams, completes an Ollama analysis, and writes the result. Its bounded input includes Suricata EVE/text and kernel records; `/var/log/boot.log` is included if the file exists and is readable. Check `podman logs --tail 100 security-ai` for `submitted AI analysis...`; `no new security logs to analyze` means there was no analysis to write in that cycle. An `analysis cycle failed` message means the query or analysis could not complete; resolve the logged OpenObserve/Ollama connectivity or authentication error and check again after a successful cycle.
 
 ## Operations and maintenance
 

@@ -51,9 +51,11 @@ services:
     volumes:
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,Z
       - ${SURICATA_LOG_DIR:-/var/log/suricata}:/var/log/suricata:ro
+      - ${BOOT_LOG_PATH:-/var/log/boot.log}:/host/boot.log:ro
       - /run/log/journal:/run/log/journal:ro
       - /etc/machine-id:/etc/machine-id:ro
       - fluent_bit_state:/fluent-bit/state
+      - security_log_archive:/var/log/security-archive
     networks:
       - security
     command: ["-c", "/fluent-bit/etc/fluent-bit.conf"]
@@ -76,6 +78,7 @@ services:
       OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
       OPENOBSERVE_ORG: ${OPENOBSERVE_ORG:-default}
       OPENOBSERVE_QUERY_INTERVAL_MINUTES: ${OPENOBSERVE_QUERY_INTERVAL_MINUTES:-5}
+      OPENOBSERVE_QUERY_OVERLAP_SECONDS: ${OPENOBSERVE_QUERY_OVERLAP_SECONDS:-30}
       OLLAMA_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
       ANALYSIS_INTERVAL_SECONDS: ${ANALYSIS_INTERVAL_SECONDS:-300}
@@ -96,3 +99,4 @@ volumes:
   ollama_data:
   fluent_bit_state:
   security_ai_state:
+  security_log_archive:

@@ -1,0 +1,10 @@
+[Unit]
+Description=Capture home security stack diagnostics after user services start
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/collect-v2-home-security-boot-logs
+
+[Install]
+WantedBy=default.target

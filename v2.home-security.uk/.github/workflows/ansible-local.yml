@@ -1,0 +1,90 @@
+name: Apply reviewed local Ansible playbooks
+
+on:
+  workflow_dispatch:
+    inputs:
+      simulate:
+        description: "Run validation and check-mode only (no host changes)"
+        type: boolean
+        required: true
+        default: true
+  workflow_call:
+    inputs:
+      simulate:
+        description: "Run validation and check-mode only (no host changes)"
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ansible-local-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apply-reviewed-playbooks:
+    # Configure this label on the Fedora host's self-hosted Actions runner.
+    runs-on: [self-hosted, linux, fedora]
+    environment: ansible-local-apply
+    timeout-minutes: 30
+    steps:
+      - name: Check out reviewed repository content
+        uses: actions/checkout@v4
+
+      - name: Confirm local Ansible is available
+        run: |
+          set -euo pipefail
+          command -v ansible-playbook
+          ansible-playbook --version
+
+      - name: Require reviewed Suricata rules artifact
+        run: |
+          set -euo pipefail
+          test -s artifacts/suricata.rules || {
+            echo "Missing artifacts/suricata.rules; add and review the generated rules before running this workflow." >&2
+            exit 1
+          }
+          echo "Artifact present: artifacts/suricata.rules"
+
+      - name: Validate local-only playbook policy
+        run: python3 scripts/validate-local-playbooks.py ansible/playbooks
+
+      - name: Syntax-check every reviewed playbook before applying any
+        run: |
+          set -euo pipefail
+          mapfile -d '' playbooks < <(find ansible/playbooks -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 | sort -z)
+          if ((${#playbooks[@]} == 0)); then
+            echo "No Ansible playbooks found under ansible/playbooks" >&2
+            exit 1
+          fi
+          for playbook in "${playbooks[@]}"; do
+            echo "Syntax-check: $playbook"
+            ansible-playbook --inventory 'localhost,' --connection local --limit localhost --syntax-check "$playbook"
+          done
+
+      - name: Preview all plays in check mode
+        run: |
+          set -euo pipefail
+          mapfile -d '' playbooks < <(find ansible/playbooks -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 | sort -z)
+          for playbook in "${playbooks[@]}"; do
+            echo "Check-mode preview: $playbook"
+            ansible-playbook --inventory 'localhost,' --connection local --limit localhost --check --diff "$playbook"
+          done
+
+      - name: Apply reviewed plays locally
+        if: ${{ inputs.simulate == false }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' playbooks < <(find ansible/playbooks -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 | sort -z)
+          for playbook in "${playbooks[@]}"; do
+            echo "Applying locally: $playbook"
+            ansible-playbook --inventory 'localhost,' --connection local --limit localhost --become "$playbook"
+          done
+          echo "REMINDER: Review the deployed Suricata rules, then reload Suricata on the host manually. This workflow does not reload or restart Suricata."
+          echo "REMINDER: Firewall-cmd rules are not applied by this workflow; review and run any approved commands manually with sudo on the host."
+
+      - name: Simulation completed without applying playbooks
+        if: ${{ inputs.simulate != false }}
+        run: echo "Simulation passed; --become apply step was intentionally skipped."

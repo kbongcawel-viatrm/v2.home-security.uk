@@ -5,7 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN useradd --system --uid 10001 --create-home app
 WORKDIR /app
-COPY worker.py /app/worker.py
+RUN pip install --no-cache-dir ansible-core PyYAML
+COPY worker.py ansible_agent.py ansible_knowledge.md /app/
 RUN mkdir -p /state && chown -R app:app /app /state
 
 USER 10001:10001
