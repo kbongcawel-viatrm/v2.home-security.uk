@@ -17,7 +17,6 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/v2.0'
     runs-on: [self-hosted, fedora]
     env:
       CONTAINER_HOST: unix:///run/user/1000/podman/podman.sock
