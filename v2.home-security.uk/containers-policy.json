@@ -4,7 +4,13 @@
   ],
   "transports": {
     "containers-storage": {
+      "[overlay@/var/home/kim/.local/share/containers/storage]": [
+        { "type": "insecureAcceptAnything" }
+      ],
       "[overlay@/var/home/kbongcawel/.local/share/containers/storage]": [
+        { "type": "insecureAcceptAnything" }
+      ],
+      "[overlay@/var/home/*/.local/share/containers/storage]": [
         { "type": "insecureAcceptAnything" }
       ]
     },
