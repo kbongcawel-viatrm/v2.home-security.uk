@@ -17,13 +17,15 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/v2.0'
     runs-on: [self-hosted, fedora]
     env:
-      CONTAINER_HOST: "unix:///run/user/1000/podman/podman.sock"
+      CONTAINER_HOST: unix:///run/user/1000/podman/podman.sock
     timeout-minutes: 45
     defaults:
       run:
         shell: bash
+        working-directory: v2.home-security.uk
     steps:
       - name: Checkout v2.0
         uses: actions/checkout@v4
@@ -33,7 +35,6 @@ jobs:
 
       - name: Check runtime prerequisites
         run: |
-          cd v2.home-security.uk || exit 1
           set -euo pipefail
           export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
           require_command() {
@@ -44,56 +45,21 @@ jobs:
             fi
             echo "Found $name: $path"
           }
-          
+
           require_command podman
           require_command podman-compose
           require_command curl
           require_command python3
-          
-          # Detect the correct Podman socket path
-          echo "=== Detecting Podman socket ==="
-          if [[ -n "${CONTAINER_HOST:-}" ]]; then
-            echo "CONTAINER_HOST is set to: $CONTAINER_HOST"
-          fi
-          
-          # Find the actual podman socket
-          if [[ -S /run/user/$(id -u)/podman/podman.sock ]]; then
-            export CONTAINER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
-            echo "Found Podman socket: $CONTAINER_HOST"
-          elif [[ -S /run/podman/podman.sock ]]; then
-            export CONTAINER_HOST="unix:///run/podman/podman.sock"
-            echo "Found system Podman socket: $CONTAINER_HOST"
-          else
-            echo "=== Podman socket not found, checking connections ==="
-            podman system connection list || true
-            echo "::warning::Podman socket not found at standard locations"
-            echo "Will use host-exec.sh for Podman operations"
-          fi
-          
-          echo "CONTAINER_HOST=$CONTAINER_HOST" >> "$GITHUB_ENV"
 
           if [[ ! -r containers-policy.json ]]; then
             echo "::error::Repository-scoped containers-policy.json is missing or unreadable."
             exit 1
           fi
 
-          # Check podman via host-exec.sh (runs on host, not in Toolbox)
-          if [[ -e /run/.toolboxenv ]]; then
-            echo "=== Checking Podman on host via host-exec.sh ==="
-            if ! podman_error="$(./scripts/host-exec.sh podman info 2>&1 >/dev/null)"; then
-              echo "::error::Podman check failed on host. Check the host's Podman storage/runtime access."
-              printf '%s\n' "$podman_error" >&2
-              exit 1
-            fi
-            echo "Podman info check passed (via host-exec.sh)"
-          else
-            # Not in Toolbox, check directly
-            if ! podman_error="$(podman info 2>&1 >/dev/null)"; then
-              echo "::error::Podman is installed but 'podman info' failed for runner user $(id -un)."
-              printf '%s\n' "$podman_error" >&2
-              exit 1
-            fi
-            echo "Podman info check passed (direct)"
+          if ! podman_error="$(podman info 2>&1 >/dev/null)"; then
+            echo "::error::Podman is installed but 'podman info' failed for runner user $(id -un). Check the runner user's Podman storage/runtime access."
+            printf '%s\n' "$podman_error" >&2
+            exit 1
           fi
           if [[ -e .env ]]; then
             echo "::error::.env already exists in the deployment directory; refusing to overwrite it. Remove it or adjust the workflow cleanup before retrying."
@@ -102,7 +68,6 @@ jobs:
 
       - name: Create deployment environment file
         run: |
-          cd v2.home-security.uk || exit 1
           set -euo pipefail
           install -m 600 .env.example .env
           echo "DEPLOY_ENV_CREATED=true" >> "$GITHUB_ENV"
@@ -113,13 +78,10 @@ jobs:
           fi
 
       - name: Validate Compose configuration
-        run: |
-          cd v2.home-security.uk || exit 1
-          ./scripts/host-exec.sh podman-compose -f compose.yaml config >/dev/null
+        run: podman-compose -f compose.yaml config >/dev/null
 
       - name: Pull container images
         run: |
-          cd v2.home-security.uk || exit 1
           set -euo pipefail
           env_value() {
             local key="$1" fallback="$2" value
@@ -163,19 +125,17 @@ jobs:
 
       - name: Deploy containers
         run: |
-          cd v2.home-security.uk || exit 1
           set -euo pipefail
           # Build the worker into containers-storage first, then start services
           # with building disabled so Compose must use this trusted local tag.
           # Build in the host namespace (see the pull step) so the signature
           # policy file is applied to the image commit.
           ./scripts/host-exec.sh env -u CONTAINER_HOST podman build --signature-policy "$GITHUB_WORKSPACE/v2.home-security.uk/containers-policy.json" -t localhost/minimal-ai-security-worker:1.0 ./security-ai
-          ./scripts/host-exec.sh podman-compose -f compose.yaml up -d --no-build
+          podman-compose -f compose.yaml up -d --no-build
 
       - name: Wait for core services
         timeout-minutes: 5
         run: |
-          cd v2.home-security.uk || exit 1
           set -euo pipefail
           wait_for() {
             local description="$1" attempts="$2" delay="$3"
@@ -194,13 +154,13 @@ jobs:
 
           required_containers=(openobserve ollama fluent-bit security-ai)
           for name in "${required_containers[@]}"; do
-            if ! ./scripts/host-exec.sh podman container exists "$name"; then
+            if ! podman container exists "$name"; then
               echo "::error::Required container is missing: $name"
-              ./scripts/host-exec.sh podman-compose -f compose.yaml ps || true
+              podman-compose -f compose.yaml ps || true
               exit 1
             fi
-            wait_for "$name container running" 30 5 bash -c '[[ "$(./scripts/host-exec.sh podman inspect --format "{{.State.Status}}" "$1" 2>/dev/null)" == running ]]' _ "$name" || {
-              ./scripts/host-exec.sh podman logs --tail 100 "$name" || true
+            wait_for "$name container running" 30 5 bash -c '[[ "$(podman inspect --format "{{.State.Status}}" "$1" 2>/dev/null)" == running ]]' _ "$name" || {
+              podman logs --tail 100 "$name" || true
               exit 1
             }
           done
@@ -213,27 +173,25 @@ jobs:
           wait_for "OpenObserve HTTP health endpoint" 30 5 openobserve_ready
 
           ollama_ready() {
-            ./scripts/host-exec.sh podman exec ollama ollama list >/dev/null 2>&1
+            podman exec ollama ollama list >/dev/null 2>&1
           }
           wait_for "Ollama API" 30 5 ollama_ready
 
       - name: Ensure configured Ollama model is available
         timeout-minutes: 60
         run: |
-          cd v2.home-security.uk || exit 1
           set -euo pipefail
           model="$(awk -F= '$1 == "OLLAMA_MODEL" { sub(/^[^=]*=/, ""); value = $0 } END { print value }' .env)"
           model="${model:-qwen2.5:3b}"
-          if ./scripts/host-exec.sh podman exec ollama ollama show "$model" >/dev/null 2>&1; then
+          if podman exec ollama ollama show "$model" >/dev/null 2>&1; then
             echo "Ollama model already present: $model"
           else
-            ./scripts/host-exec.sh podman exec ollama ollama pull "$model"
+            podman exec ollama ollama pull "$model"
           fi
 
       - name: Health check containers
         timeout-minutes: 5
         run: |
-          cd v2.home-security.uk || exit 1
           set -euo pipefail
 
           wait_for() {
@@ -255,21 +213,21 @@ jobs:
           # its image defines a healthcheck. "not-configured" is informational.
           required_containers=(openobserve ollama fluent-bit security-ai)
           for name in "${required_containers[@]}"; do
-            if ! ./scripts/host-exec.sh podman container exists "$name"; then
+            if ! podman container exists "$name"; then
               echo "::error::Required container is missing: $name"
-              ./scripts/host-exec.sh podman-compose -f compose.yaml ps || true
+              podman-compose -f compose.yaml ps || true
               exit 1
             fi
-            wait_for "$name container running" 30 5 bash -c '[[ "$(./scripts/host-exec.sh podman inspect --format "{{.State.Status}}" "$1" 2>/dev/null)" == running ]]' _ "$name" || {
-              ./scripts/host-exec.sh podman logs --tail 100 "$name" || true
+            wait_for "$name container running" 30 5 bash -c '[[ "$(podman inspect --format "{{.State.Status}}" "$1" 2>/dev/null)" == running ]]' _ "$name" || {
+              podman logs --tail 100 "$name" || true
               exit 1
             }
-            state="$(./scripts/host-exec.sh podman inspect --format '{{.State.Status}}' "$name")"
-            health="$(./scripts/host-exec.sh podman inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}not-configured{{end}}' "$name" 2>/dev/null || echo unknown)"
+            state="$(podman inspect --format '{{.State.Status}}' "$name")"
+            health="$(podman inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}not-configured{{end}}' "$name" 2>/dev/null || echo unknown)"
             echo "$name: state=$state health=$health"
             if [[ "$health" == "unhealthy" ]]; then
               echo "::error::Container $name reports unhealthy."
-              ./scripts/host-exec.sh podman logs --tail 100 "$name" || true
+              podman logs --tail 100 "$name" || true
               exit 1
             fi
           done
@@ -283,64 +241,33 @@ jobs:
           wait_for "OpenObserve HTTP health endpoint" 30 5 openobserve_ready
 
           # Verify Ollama and the configured model after its health-gated pull.
-          ./scripts/host-exec.sh podman exec ollama ollama list
+          podman exec ollama ollama list
           model="$(sed -n 's/^OLLAMA_MODEL=//p' .env | tail -n 1)"
           model="${model:-qwen2.5:3b}"
-          ./scripts/host-exec.sh podman exec ollama ollama show "$model" >/dev/null
+          podman exec ollama ollama show "$model" >/dev/null
 
           # Verify Fluent Bit and the AI worker are alive. The worker reads
           # security_logs from OpenObserve; host log files are mounted only in
           # Fluent Bit and are not direct worker inputs.
-          ./scripts/host-exec.sh podman top fluent-bit
-          ./scripts/host-exec.sh podman logs --tail 100 security-ai | grep -F "security-ai worker started" >/dev/null || {
+          podman top fluent-bit
+          podman logs --tail 100 security-ai | grep -F "security-ai worker started" >/dev/null || {
             echo "::error::AI worker startup marker not found in recent logs."
-            ./scripts/host-exec.sh podman logs --tail 100 security-ai || true
+            podman logs --tail 100 security-ai || true
             exit 1
           }
 
           echo "All Compose services, OpenObserve, Ollama, Fluent Bit, and AI worker checks passed."
-          ./scripts/host-exec.sh podman-compose -f compose.yaml ps
+          podman-compose -f compose.yaml ps
 
       - name: Collect diagnostics on failure
         if: failure()
         run: |
-          cd v2.home-security.uk || exit 1
           set +e
-          ./scripts/host-exec.sh podman-compose -f compose.yaml ps
+          podman-compose -f compose.yaml ps
           for name in openobserve ollama fluent-bit security-ai; do
             echo "===== $name ====="
-            ./scripts/host-exec.sh podman logs --tail 100 "$name"
+            podman logs --tail 100 "$name"
           done
       - name: Remove temporary environment file
         if: always() && env.DEPLOY_ENV_CREATED == 'true'
         run: rm -f .env
-
-      - name: Deployment summary
-        if: always()
-        run: |
-          cd v2.home-security.uk || exit 1
-          echo "=== Stack Deployment Complete ==="
-          echo ""
-          echo "Next steps for AI-driven security changes:"
-          echo "  1. Review AI recommendations in OpenObserve (ai_recommendations stream)"
-          echo "  2. Create artifacts in v2.home-security.uk/artifacts/:"
-          echo "     - suricata.rules (AI-generated detection rules)"
-          echo "     - firewalld-blocks.json (AI-generated block requests)"
-          echo "  3. Commit artifacts to the repository"
-          echo "  4. Configure GitHub secrets for target host:"
-          echo "     - TARGET_HOST (target Fedora host IP/hostname)"
-          echo "     - TARGET_USER (SSH user)"
-          echo "     - TARGET_SSH_KEY (SSH private key)"
-          echo "     - TARGET_SUDO_PASSWORD (sudo password for --become)"
-          echo "  5. Run 'Apply Security Changes' workflow (GitHub-hosted runner)"
-          echo ""
-          echo "The GitHub-hosted workflow will:"
-          echo "  - Connect to target host via SSH"
-          echo "  - Validate playbooks and artifacts"
-          echo "  - Run check mode (dry-run)"
-          echo "  - Deploy Suricata rules and reload suricata.service"
-          echo "  - Apply firewalld rules to block IPs/services"
-          echo ""
-          echo "Note: This workflow runs inside Toolbox and cannot modify host services."
-          echo "      Security changes are deployed by apply-host-security-changes.yml"
-          echo "      which runs on a GitHub-hosted runner and connects via SSH."
