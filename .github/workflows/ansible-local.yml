@@ -55,7 +55,9 @@ jobs:
           echo "Artifact present: artifacts/suricata.rules"
 
       - name: Validate local-only playbook policy
-        run: python3 scripts/validate-local-playbooks.py ansible/playbooks
+        run: |
+          cd v2.home-security.uk || exit 1
+          python3 scripts/validate-local-playbooks.py ansible/playbooks
 
       - name: Syntax-check every reviewed playbook before applying any
         run: |

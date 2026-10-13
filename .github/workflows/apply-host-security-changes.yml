@@ -144,7 +144,9 @@ jobs:
           echo "firewalld_changes_present=${firewalld_present}" >> "$GITHUB_OUTPUT"
 
       - name: Validate playbook policy
-        run: python3 scripts/validate-local-playbooks.py ansible/playbooks
+        run: |
+          cd v2.home-security.uk || exit 1
+          python3 scripts/validate-local-playbooks.py ansible/playbooks
 
       - name: Syntax-check all playbooks
         run: |

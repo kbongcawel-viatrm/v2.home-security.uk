@@ -113,7 +113,9 @@ jobs:
           fi
 
       - name: Validate Compose configuration
-        run: ./scripts/host-exec.sh podman-compose -f compose.yaml config >/dev/null
+        run: |
+          cd v2.home-security.uk || exit 1
+          ./scripts/host-exec.sh podman-compose -f compose.yaml config >/dev/null
 
       - name: Pull container images
         run: |
