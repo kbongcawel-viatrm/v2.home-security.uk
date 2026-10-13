@@ -47,8 +47,7 @@ jobs:
           }
 
           require_command ./scripts/podman-host.sh
-          require_command podman-compose
-          require_command curl
+                    require_command curl
           require_command python3
 
           if [[ ! -r containers-policy.json ]]; then
