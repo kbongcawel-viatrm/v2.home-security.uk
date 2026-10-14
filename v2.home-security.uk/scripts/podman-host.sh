@@ -26,6 +26,14 @@ if [[ -r "$POLICY_FILE" ]]; then
     export CONTAINERS_SIGNATURE_POLICY_PATH="$POLICY_FILE"
 fi
 
+# NOTE: Podman 5.x does not honor the CONTAINERS_* policy env vars above, so
+# 'pull' passes the custom policy explicitly via --signature-policy (a hidden
+# flag; it does not appear in 'podman pull --help'). Without it, the host's
+# Secureblue default policy rejects pulls such as cr.fluentbit.io.
+if [[ "${1:-}" == "pull" && -r "$POLICY_FILE" ]]; then
+    set -- pull --signature-policy "$POLICY_FILE" "${@:2}"
+fi
+
 # Check if we're inside Toolbox
 if [[ -e /run/.toolboxenv ]]; then
     # Inside Toolbox - run on host via host-exec.sh

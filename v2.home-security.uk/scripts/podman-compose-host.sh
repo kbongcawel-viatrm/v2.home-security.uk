@@ -22,6 +22,10 @@ POLICY_FILE="$PROJECT_ROOT/containers-policy.json"
 
 # Use our custom containers policy to allow local storage and our images
 # This overrides the host's Secureblue default policy (which is too strict)
+# NOTE: Podman 5.x ignores these env vars for pulls made through
+# 'podman compose' (the API service still applies the host policy), so we
+# pre-pull missing images below with 'podman pull --signature-policy',
+# which is the flag that actually works.
 if [[ -r "$POLICY_FILE" ]]; then
     export CONTAINERS_POLICY_JSON="$POLICY_FILE"
     # Also set the storage policy path for older Podman versions

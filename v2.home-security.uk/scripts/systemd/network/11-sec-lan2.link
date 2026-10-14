@@ -1,0 +1,7 @@
+# Stable name for the second USB NIC (spare / future SPAN port).
+# Kernel names like enp0s20f0u2 shuffle across boots; match the permanent MAC.
+[Match]
+MACAddress=00:e0:4c:68:01:78
+
+[Link]
+Name=sec-lan2
