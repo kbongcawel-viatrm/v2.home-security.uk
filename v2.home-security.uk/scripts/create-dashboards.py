@@ -89,7 +89,7 @@ class OpenObserveDashboardCreator:
         return []
 
     def _create_panel(self, panel_id: str, title: str, chart_type: str, sql_query: str, 
-                     stream: str, x: int, y: int, w: int = 12, h: int = 8) -> dict:
+                     stream: str, x: int, y: int, w: int = 12, h: int = 8, panel_index: int = 1) -> dict:
         """Helper method to create a panel with proper v8 format."""
         return {
             "id": panel_id,
@@ -111,15 +111,28 @@ class OpenObserveDashboardCreator:
                         "conditions": []
                     }
                 },
-                "config": {}
+                "config": {
+                    "promql_legend": "",
+                    "layer_type": "scatter",
+                    "weight_fixed": 1,
+                    "limit": 0,
+                    "min": 0,
+                    "max": 100,
+                    "time_shift": [],
+                    "show_legends": True
+                }
             }],
-            "config": {},
+            "config": {
+                "show_legends": True,
+                "legends_position": None,
+                "axis_border_show": False
+            },
             "layout": {
                 "x": x,
                 "y": y,
                 "w": w,
                 "h": h,
-                "i": panel_id
+                "i": panel_index
             }
         }
 
@@ -128,22 +141,22 @@ class OpenObserveDashboardCreator:
         panels = [
             self._create_panel("suricata_alerts", "Suricata Alerts Timeline", "line",
                               "SELECT COUNT(*) as count FROM security_logs WHERE source='suricata' GROUP BY _timestamp ORDER BY _timestamp DESC",
-                              "security_logs", 0, 0),
+                              "security_logs", 0, 0, panel_index=1),
             self._create_panel("top_src_ips", "Top Source IPs (Suricata)", "bar",
                               "SELECT src_ip, COUNT(*) as count FROM security_logs WHERE source='suricata' AND src_ip IS NOT NULL GROUP BY src_ip ORDER BY count DESC LIMIT 10",
-                              "security_logs", 12, 0),
+                              "security_logs", 12, 0, panel_index=2),
             self._create_panel("top_dest_ips", "Top Destination IPs (Suricata)", "bar",
                               "SELECT dest_ip, COUNT(*) as count FROM security_logs WHERE source='suricata' AND dest_ip IS NOT NULL GROUP BY dest_ip ORDER BY count DESC LIMIT 10",
-                              "security_logs", 24, 0),
+                              "security_logs", 24, 0, panel_index=3),
             self._create_panel("firewall_logs", "Firewall Events Timeline", "line",
                               "SELECT COUNT(*) as count FROM firewall_logs GROUP BY _timestamp ORDER BY _timestamp DESC",
-                              "firewall_logs", 0, 10),
+                              "firewall_logs", 0, 10, panel_index=4),
             self._create_panel("kernel_logs", "Kernel Logs Timeline", "line",
                               "SELECT COUNT(*) as count FROM kernel_logs GROUP BY _timestamp ORDER BY _timestamp DESC",
-                              "kernel_logs", 12, 10),
+                              "kernel_logs", 12, 10, panel_index=5),
             self._create_panel("alert_severity", "Alert Severity Distribution", "pie",
                               "SELECT alert_severity, COUNT(*) as count FROM security_logs WHERE source='suricata' AND alert_severity IS NOT NULL GROUP BY alert_severity",
-                              "security_logs", 24, 10)
+                              "security_logs", 24, 10, panel_index=6)
         ]
         
         return self.create_dashboard(
@@ -157,28 +170,28 @@ class OpenObserveDashboardCreator:
         panels = [
             self._create_panel("total_events", "Total Events (Last 24h)", "stat",
                               "SELECT COUNT(*) as total FROM security_logs WHERE _timestamp > now() - interval 24 hour",
-                              "security_logs", 0, 0, 6, 8),
+                              "security_logs", 0, 0, 6, 8, panel_index=1),
             self._create_panel("unique_src_ips", "Unique Source IPs (24h)", "stat",
                               "SELECT COUNT(DISTINCT src_ip) as unique_ips FROM security_logs WHERE source='suricata' AND src_ip IS NOT NULL AND _timestamp > now() - interval 24 hour",
-                              "security_logs", 6, 0, 6, 8),
+                              "security_logs", 6, 0, 6, 8, panel_index=2),
             self._create_panel("unique_dest_ips", "Unique Destination IPs (24h)", "stat",
                               "SELECT COUNT(DISTINCT dest_ip) as unique_ips FROM security_logs WHERE source='suricata' AND dest_ip IS NOT NULL AND _timestamp > now() - interval 24 hour",
-                              "security_logs", 12, 0, 6, 8),
+                              "security_logs", 12, 0, 6, 8, panel_index=3),
             self._create_panel("event_rate", "Event Rate Over Time", "line",
                               "SELECT COUNT(*) as count FROM security_logs WHERE source='suricata' GROUP BY _timestamp ORDER BY _timestamp DESC",
-                              "security_logs", 18, 0, 12, 8),
+                              "security_logs", 18, 0, 12, 8, panel_index=4),
             self._create_panel("top_ports", "Top Destination Ports", "bar",
                               "SELECT dest_port, COUNT(*) as count FROM security_logs WHERE source='suricata' AND dest_port IS NOT NULL GROUP BY dest_port ORDER BY count DESC LIMIT 15",
-                              "security_logs", 0, 8),
+                              "security_logs", 0, 8, panel_index=5),
             self._create_panel("top_protocols", "Top Protocols", "pie",
                               "SELECT proto, COUNT(*) as count FROM security_logs WHERE source='suricata' AND proto IS NOT NULL GROUP BY proto",
-                              "security_logs", 12, 8),
+                              "security_logs", 12, 8, panel_index=6),
             self._create_panel("top_alert_rules", "Top Alert Rules", "bar",
                               "SELECT alert_msg, COUNT(*) as count FROM security_logs WHERE source='suricata' AND alert_msg IS NOT NULL GROUP BY alert_msg ORDER BY count DESC LIMIT 12",
-                              "security_logs", 24, 8),
+                              "security_logs", 24, 8, panel_index=7),
             self._create_panel("src_ip_request_count", "Top Source IPs by Request Count", "table",
                               "SELECT src_ip, COUNT(*) as requests FROM security_logs WHERE source='suricata' AND src_ip IS NOT NULL GROUP BY src_ip ORDER BY requests DESC LIMIT 20",
-                              "security_logs", 0, 16, 12, 8)
+                              "security_logs", 0, 16, 12, 8, panel_index=8)
         ]
         
         return self.create_dashboard(
@@ -192,19 +205,19 @@ class OpenObserveDashboardCreator:
         panels = [
             self._create_panel("recommendations_timeline", "AI Analysis Events Timeline", "line",
                               "SELECT COUNT(*) as count FROM ai_recommendations GROUP BY _timestamp ORDER BY _timestamp DESC",
-                              "ai_recommendations", 0, 0),
+                              "ai_recommendations", 0, 0, panel_index=1),
             self._create_panel("analysis_events_daily", "Analysis Events per Day", "bar",
                               "SELECT COUNT(*) as count FROM ai_recommendations GROUP BY date_trunc('day', _timestamp) ORDER BY date_trunc('day', _timestamp) DESC LIMIT 30",
-                              "ai_recommendations", 12, 0),
+                              "ai_recommendations", 12, 0, panel_index=2),
             self._create_panel("recommendation_status", "Recommendation Status Distribution", "pie",
                               "SELECT status, COUNT(*) as count FROM ai_recommendations GROUP BY status",
-                              "ai_recommendations", 24, 0, 12, 8),
+                              "ai_recommendations", 24, 0, 12, 8, panel_index=3),
             self._create_panel("top_findings", "Top Finding Types", "bar",
                               "SELECT finding_type, COUNT(*) as count FROM ai_recommendations WHERE finding_type IS NOT NULL GROUP BY finding_type ORDER BY count DESC LIMIT 10",
-                              "ai_recommendations", 0, 8),
+                              "ai_recommendations", 0, 8, panel_index=4),
             self._create_panel("recent_recommendations", "Recent AI Recommendations", "table",
                               "SELECT * FROM ai_recommendations ORDER BY _timestamp DESC LIMIT 50",
-                              "ai_recommendations", 0, 16, 36, 10)
+                              "ai_recommendations", 0, 16, 36, 10, panel_index=5)
         ]
         
         return self.create_dashboard(
