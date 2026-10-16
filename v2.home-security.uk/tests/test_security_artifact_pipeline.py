@@ -3,9 +3,14 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,6 +25,13 @@ def load_module(name: str, path: Path):
 
 artifact_writer = load_module("artifact_writer", ROOT / "security-ai" / "artifact_writer.py")
 playbook_generator = load_module("playbook_generator", ROOT / "ansible-ai" / "playbook_generator.py")
+sys.path.insert(0, str(ROOT / "security-ai"))
+with patch.dict(os.environ, {"OPENOBSERVE_USER": "test", "OPENOBSERVE_PASSWORD": "test"}):
+    security_worker = load_module("security_worker", ROOT / "security-ai" / "worker.py")
+sys.path.pop(0)
+sys.path.insert(0, str(ROOT / "ansible-ai"))
+ansible_worker = load_module("ansible_worker", ROOT / "ansible-ai" / "worker.py")
+sys.path.pop(0)
 
 
 def record(severity: str = "high") -> dict:
@@ -64,6 +76,43 @@ class ArtifactWriterTests(unittest.TestCase):
             self.assertEqual([item["name"] for item in manifest["deployable_artifacts"]],
                              ["suricata", "fail2ban", "firewalld"])
             self.assertTrue(all(item["source"].startswith(directory) for item in manifest["deployable_artifacts"]))
+
+    def test_security_worker_queries_and_deduplicates_events(self):
+        event = {"_timestamp": "2026-10-16T00:00:00Z", "source": "suricata", "event_type": "alert"}
+        offsets = {}
+        with (patch.object(security_worker, "INPUT_STREAMS", ("security_logs",)),
+              patch.object(security_worker, "request_json", return_value={"hits": [event]}) as request):
+            selected, coverage = security_worker.query_new_events(offsets)
+            repeated, _ = security_worker.query_new_events(offsets)
+
+        self.assertEqual(len(request.call_args_list), 2)
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0]["_evidence_stream"], "security_logs")
+        self.assertTrue(selected[0]["event_ref"])
+        self.assertEqual(repeated, [])
+        self.assertEqual(coverage, [])
+        self.assertIn("security_logs", offsets["stream_cursors"])
+
+    def test_manifest_flows_through_ansible_worker_to_draft_playbook(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            security_dir = root / "security-ai"
+            ansible_dir = root / "ansible-ai"
+            state_file = root / "state" / "manifest.sha256"
+            artifact_writer.write_artifacts(record("medium"), security_dir)
+
+            with (patch.object(ansible_worker, "SECURITY_DIR", security_dir),
+                  patch.object(ansible_worker, "OUTPUT_DIR", ansible_dir),
+                  patch.object(ansible_worker, "STATE_FILE", state_file)):
+                self.assertTrue(ansible_worker.process_manifest())
+                self.assertFalse(ansible_worker.process_manifest())
+
+            playbook_path = ansible_dir / "deploy-security-artifacts.yml"
+            generated = yaml.safe_load(playbook_path.read_text(encoding="utf-8"))
+            self.assertEqual(generated[0]["hosts"], "localhost")
+            self.assertFalse(generated[0]["vars"]["apply_generated_artifacts"])
+            self.assertEqual([task["name"] for task in generated[0]["tasks"][0]["block"]
+                              if task["name"].startswith("Stage ")], ["Stage suricata draft"])
 
 
 class PlaybookGeneratorTests(unittest.TestCase):
