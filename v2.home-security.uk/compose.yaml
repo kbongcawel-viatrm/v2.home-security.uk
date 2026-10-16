@@ -32,7 +32,7 @@ services:
       OLLAMA_NUM_PARALLEL: "1"
       OLLAMA_MAX_LOADED_MODELS: "1"
     cpus: 2.0
-    mem_limit: 3000m
+    mem_limit: 2048m
     volumes:
       - ollama_data:/root/.ollama
     networks:
@@ -49,7 +49,7 @@ services:
   fluent-bit:
     image: cr.fluentbit.io/fluent/fluent-bit:${FLUENT_BIT_TAG:-3.2}
     container_name: fluent-bit
-    userns_mode: "keep-id:uid=10001,gid=10001"
+    #userns_mode: "keep-id:uid=10001,gid=10001"
     restart: unless-stopped
     depends_on:
       openobserve:
