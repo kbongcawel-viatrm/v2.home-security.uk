@@ -15,6 +15,7 @@ from source_catalog import recommend_sources
 
 STATE_FILE = Path("/state/offsets.json")
 ARTIFACTS_DIR = Path(os.getenv("ARTIFACTS_DIR", "/artifacts/generated/security-ai"))
+SESSION_FORENSICS_SKILL = Path(__file__).with_name("session_forensics_skill.md").read_text(encoding="utf-8")
 
 OO_URL = os.getenv("OPENOBSERVE_URL", "http://openobserve:5080").rstrip("/")
 OO_USER = os.environ["OPENOBSERVE_USER"]
@@ -270,6 +271,18 @@ def analyze(events):
         "flow, dns, http, tls, ssh, and file events), firewalld logs, kernel messages, "
         "and OS boot/session records. Focus on actionable defensive recommendations "
         "that can be safely deployed to improve detection and response.\n\n"
+
+        "SESSION FORENSICS SKILL:\n"
+        "For events concerning SSH authentication, session open/close, sudo, polkit, "
+        "or interactive logins, apply the following forensic triage guidance. Treat "
+        "records as evidence, not proof; distinguish failed attempts from successful "
+        "access; correlate timestamps, accounts, session identifiers, TTYs, and origins "
+        "when supplied. Do not infer compromise from an active session or unfamiliar "
+        "address alone. State confidence, alternative explanations, and evidence gaps. "
+        "This telemetry-only analysis cannot conclusively detect hijacking inside an "
+        "already-authenticated session. Never claim commands were run or sessions "
+        "inspected: this worker has no host access and performs no investigation on-host.\n"
+        + SESSION_FORENSICS_SKILL + "\n\n"
         
         "CORRELATION REQUIREMENTS:\n"
         "For each significant finding, correlate to known threats:\n"
@@ -327,6 +340,11 @@ def analyze(events):
         "  cve_ids, attack_types, mitre_techniques\n"
         "  - For suricata: rule, source_id, community_id\n"
         "- confidence (string): low, medium, or high\n\n"
+        "- session_forensics (object or null): For relevant login/session evidence, "
+        "include assessment (no_suspicious_evidence_observed, suspicious_activity, "
+        "probable_compromise_or_hijack, or insufficient_evidence), confidence, "
+        "event_refs, evidence, alternative_explanations, evidence_gaps, and "
+        "recommended_read_only_follow_up. Use null when unrelated to login sessions.\n\n"
         
         "Events:\n" + json.dumps(events, ensure_ascii=False)[:24000]
     )

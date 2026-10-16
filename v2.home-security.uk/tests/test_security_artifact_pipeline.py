@@ -93,6 +93,18 @@ class ArtifactWriterTests(unittest.TestCase):
         self.assertEqual(coverage, [])
         self.assertIn("security_logs", offsets["stream_cursors"])
 
+    def test_session_forensics_skill_is_included_in_analysis_prompt(self):
+        event = {"event_ref": "session-event", "event_type": "session opened"}
+        response = {"response": json.dumps({"findings": [], "proposed_changes": [], "confidence": "low"})}
+        with patch.object(security_worker, "request_json", return_value=response) as request:
+            security_worker.analyze([event])
+
+        prompt = request.call_args.args[1]["prompt"]
+        self.assertIn("SESSION FORENSICS SKILL", prompt)
+        self.assertIn("already-authenticated session", prompt)
+        self.assertIn("recommended_read_only_follow_up", prompt)
+        self.assertIn("session-event", prompt)
+
     def test_manifest_flows_through_ansible_worker_to_draft_playbook(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
