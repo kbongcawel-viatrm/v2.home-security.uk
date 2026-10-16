@@ -78,6 +78,7 @@ services:
       context: ./security-ai
     image: localhost/minimal-ai-security-worker:1.0
     container_name: security-ai
+    userns_mode: "keep-id:uid=10001,gid=10001"
     restart: unless-stopped
     depends_on:
       openobserve:
@@ -85,6 +86,8 @@ services:
       ollama:
         condition: service_healthy
     environment:
+      ANSIBLE_LOCAL_TEMP: /tmp/ansible-local
+      ANSIBLE_REMOTE_TEMP: /tmp/ansible-remote
       OPENOBSERVE_URL: http://openobserve:5080
       OPENOBSERVE_USER: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
       OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
@@ -95,11 +98,39 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
       ANALYSIS_INTERVAL_SECONDS: ${ANALYSIS_INTERVAL_SECONDS:-300}
       MAX_EVENTS_PER_BATCH: ${MAX_EVENTS_PER_BATCH:-30}
+      ARTIFACTS_DIR: /artifacts/generated/security-ai
       TZ: ${TZ:-Asia/Manila}
     cpus: 0.5
     mem_limit: 384m
     volumes:
       - security_ai_state:/state
+      - ./artifacts/generated:/artifacts/generated:rw,z
+      - ansible_ai_temp:/tmp/ansible-local
+    networks:
+      - security
+    stop_grace_period: 30s
+
+  ansible-ai:
+    build:
+      context: ./ansible-ai
+    image: localhost/minimal-ai-ansible-drafter:1.0
+    container_name: ansible-ai
+    userns_mode: "keep-id:uid=10001,gid=10001"
+    restart: unless-stopped
+    depends_on:
+      - security-ai
+    environment:
+      ANSIBLE_LOCAL_TEMP: /tmp/ansible-local
+      ANSIBLE_REMOTE_TEMP: /tmp/ansible-remote
+      SECURITY_ARTIFACTS_DIR: /artifacts/generated/security-ai
+      ANSIBLE_ARTIFACTS_DIR: /artifacts/generated/ansible-ai
+      PLAYBOOK_INTERVAL_SECONDS: ${PLAYBOOK_INTERVAL_SECONDS:-30}
+      TZ: ${TZ:-Asia/Manila}
+    cpus: 0.25
+    mem_limit: 256m
+    volumes:
+      - ./artifacts/generated:/artifacts/generated:rw,z
+      - ansible_ai_temp:/tmp/ansible-local
     networks:
       - security
     stop_grace_period: 30s
@@ -114,3 +145,4 @@ volumes:
   fluent_bit_state:
   security_ai_state:
   security_log_archive:
+  ansible_ai_temp:

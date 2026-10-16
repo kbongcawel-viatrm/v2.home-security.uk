@@ -22,6 +22,12 @@ OpenObserve streams used by the current stack:
 
 An existing `wazuh_alerts` stream may remain in the OpenObserve data volume from the former Wazuh setup. It is historical data: the current Compose stack does not ingest Wazuh alerts or write to that stream. The former Wazuh volumes were preserved separately.
 
+## AI rule-draft handoff
+
+`security-ai` now writes review-only files under `artifacts/generated/security-ai/`. A separate `ansible-ai` Compose service watches its manifest and writes a deterministic, policy-validated same-host playbook under `artifacts/generated/ansible-ai/`. Both containers use UID mapping and writable mounts limited to that generated-artifacts tree; neither receives host `/etc` mounts or host service sockets.
+
+Severity policy: informational/low produces no selected host artifacts; medium selects Suricata alert rules; high/critical can additionally select the public IPv4 block-list and an inert Firewalld draft. The Firewalld script is never run. `blocked-ips.txt` is not yet connected to a Fail2ban jail/action, so staging it does not create a ban. Ansible drafts default to no-op and require both an explicit `apply_generated_artifacts=true` and interactive `APPLY` confirmation. If Suricata rules are selected, the playbook validates the config, reloads Suricata, observes for 150 seconds, checks the service and post-reload error journal, and attempts file/service rollback on failure. A human must review all generated files before any manual apply.
+
 ## Event pipeline
 
 1. Native Suricata captures traffic on the configured host interface and writes `/var/log/suricata/eve.json`; host services and kernel messages are available from journald. Fluent Bit tails EVE JSON, Suricata text logs, and `/var/log/boot.log` if present.

@@ -1,15 +1,5 @@
 #!/usr/bin/env python3
-"""Read recent security logs from OpenObserve, ask Ollama for defensive recommendations
-correlated to CVEs and cyber attacks, and write structured recommendations to OpenObserve.
-
-The worker generates recommendations only; deployment is handled by separate
-host-level Ansible playbooks executed via GitHub Actions on a host-level runner.
-
-Recommendation types:
-1. Suricata rules (with CVE, source-id, community-id metadata) - deployed to
-   /var/lib/suricata/rules/suricata.rules and Suricata is reloaded
-2. Firewall-cmd rules to block IPs or services - applied via firewalld rich rules
-"""
+"""Analyze security telemetry and write review-only host-rule artifacts."""
 import base64
 import json
 import hashlib
@@ -19,10 +9,11 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from datetime import datetime, timezone
-from ansible_agent import finalize_proposals
+from artifact_writer import write_artifacts
+from source_catalog import recommend_sources
 
 STATE_FILE = Path("/state/offsets.json")
+ARTIFACTS_DIR = Path(os.getenv("ARTIFACTS_DIR", "/artifacts/generated/security-ai"))
 
 OO_URL = os.getenv("OPENOBSERVE_URL", "http://openobserve:5080").rstrip("/")
 OO_USER = os.environ["OPENOBSERVE_USER"]
@@ -301,22 +292,19 @@ def analyze(events):
         "metadata:cve CVE-2024-6387, attack_type brute_force, source_id AI-REC, created_at 2026-01-01;)\n"
         "   - Include fields: rule, cve_ids (array), attack_types (array), mitre_techniques (array), "
         "     source_id, community_id\n\n"
-        "2. FIREWALL BLOCKS (target='firewalld'):\n"
-        "   - block_type: 'ip', 'service', or 'port'\n"
-        "   - For IP blocks: specify blocked_ip and zone (default 'public')\n"
-        "   - For service blocks: specify blocked_service (e.g., 'telnet', 'ftp') and zone\n"
-        "   - For port blocks: specify blocked_port (e.g., '4444/tcp') and zone\n"
-        "   - Never guess zone, interface, or address; if context is insufficient, do not propose\n"
-        "   - Include precise inverse rollback command in rollback_steps\n\n"
-        "3. ANSIBLE PLAYBOOKS (target='ansible'):\n"
-        "   - Small YAML playbook drafts for host-level deployment\n"
-        "   - Target localhost only, connection: local\n"
-        "   - Use only: ansible.builtin.copy, service, command (validated), firewalld, stat, assert, debug\n\n"
-        
+        "2. BLOCKED IP CANDIDATES (target='firewalld'):\n"
+        "   - Propose only observed public IPv4 addresses; never internal, private, reserved, or documentation IPs\n"
+        "   - Only propose narrow source-IP drop drafts for high or critical severity findings\n"
+        "   - Do not propose service removals, port-wide blocks, zone changes, or default-policy changes\n\n"
+        "SURICATA SOURCE IDS:\n"
+        "Do not invent or return arbitrary Suricata source IDs. For evidence-linked phishing, "
+        "spear-phishing, credential-phishing, or brand-impersonation findings, describe the relevant "
+        "attack_type and cite the event_refs. The trusted local catalog maps eligible findings to "
+        "julioliraup/antiphishing. Source enablement is a separate reviewed Ansible draft.\n\n"
         "DEPLOYMENT ARCHITECTURE:\n"
-        "Recommendations are deployed by a host-level GitHub Actions runner (not inside Toolbox) "
-        "using Ansible playbooks with --become flag. The worker only generates recommendations; "
-        "it never executes changes.\n\n"
+        "This worker writes review-only files under /artifacts/generated. It never applies rules, "
+        "executes a firewall script, changes a host, or reloads a service. The separate ansible-ai "
+        "worker drafts a playbook; a human must review and explicitly run it.\n\n"
         
         "SAFETY REQUIREMENTS:\n"
         "- Never recommend disabling protections globally\n"
@@ -337,8 +325,6 @@ def analyze(events):
         "  event_refs, risk, false_positive_risk, validation_steps, rollback_steps, "
         "  cve_ids, attack_types, mitre_techniques\n"
         "  - For suricata: rule, source_id, community_id\n"
-        "  - For firewalld: block_type, blocked_ip/blocked_service/blocked_port, zone\n"
-        "  - For ansible: playbook_yaml\n"
         "- confidence (string): low, medium, or high\n\n"
         
         "Events:\n" + json.dumps(events, ensure_ascii=False)[:24000]
@@ -356,12 +342,8 @@ def analyze(events):
         analysis = {"summary": raw[:4000], "findings": [], "proposed_changes": [],
                     "confidence": "low", "parse_error": True}
     if isinstance(analysis, dict):
-        raw_proposals = analysis.get("proposed_changes", [])
         analysis["proposed_changes"] = validate_proposals(analysis, events)
-        if isinstance(raw_proposals, list):
-            analysis["proposed_changes"].extend(finalize_proposals(
-                raw_proposals, events, OLLAMA_URL, MODEL, request_json,
-            ))
+        analysis["source_recommendations"] = recommend_sources(analysis, events)
     return analysis
 
 def main():
@@ -396,9 +378,21 @@ def main():
                         str(e["host_log_path"]) for e in events if e.get("host_log_path")
                     }),
                     "analysis_scope": "Suricata EVE/text, host boot logs, and configured host journal/kernel streams",
-                    "deployment_architecture": "Recommendations are deployed by host-level Ansible playbooks via GitHub Actions (not by this worker)",
+                    "deployment_architecture": "security-ai writes review-only drafts; ansible-ai writes a guarded playbook; neither worker automatically applies host changes",
                     "analysis": analysis,
                 }
+                try:
+                    artifacts = write_artifacts(record, ARTIFACTS_DIR)
+                except OSError as exc:
+                    print(f"unable to write security artifact drafts: {exc}", flush=True)
+                    continue
+                print(
+                    f"wrote draft artifacts severity={artifacts['severity']} "
+                    f"rules={artifacts['artifacts']['suricata']['rule_count']} "
+                    f"candidate_ips={artifacts['artifacts']['firewalld']['ip_count']} "
+                    f"to={ARTIFACTS_DIR}",
+                    flush=True,
+                )
                 ingest_recommendation(record)
                 print(f"submitted AI analysis for {len(events)} events", flush=True)
             else:
