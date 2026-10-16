@@ -21,6 +21,9 @@
       "docker.io/wazuh/wazuh-manager": [
         { "type": "insecureAcceptAnything" }
       ],
+     "docker.io/crazymax/fail2ban:latest": [
+        { "type": "insecureAcceptAnything" }
+      ],
       "public.ecr.aws/zinclabs/openobserve": [
         { "type": "insecureAcceptAnything" }
       ],

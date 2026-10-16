@@ -12,7 +12,11 @@ services:
       ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
       ZO_DATA_DIR: /data
       ZO_LOCAL_MODE: "true"
+      ZO_MEMORY_CACHE_MAX_SIZE: "128"
+      ZO_MEMORY_CACHE_DATAFUSION_MAX_SIZE: "256"
       TZ: ${TZ:-Asia/Manila}
+    cpus: 1.0
+    mem_limit: 1280m
     volumes:
       - openobserve_data:/data
     networks:
@@ -23,6 +27,12 @@ services:
     image: docker.io/ollama/ollama:${OLLAMA_TAG:-latest}
     container_name: ollama
     restart: unless-stopped
+    environment:
+      OLLAMA_CONTEXT_LENGTH: "4096"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+    cpus: 2.0
+    mem_limit: 2816m
     volumes:
       - ollama_data:/root/.ollama
     networks:
@@ -48,6 +58,8 @@ services:
       OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
       OPENOBSERVE_ORG: ${OPENOBSERVE_ORG:-default}
       TZ: ${TZ:-Asia/Manila}
+    cpus: 0.25
+    mem_limit: 128m
     volumes:
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,Z
       - ${SURICATA_LOG_DIR:-/var/log/suricata}:/var/log/suricata:ro,z
@@ -60,7 +72,7 @@ services:
       - security
     command: ["-c", "/fluent-bit/etc/fluent-bit.conf"]
     stop_grace_period: 30s
-
+  
   security-ai:
     build:
       context: ./security-ai
@@ -84,6 +96,8 @@ services:
       ANALYSIS_INTERVAL_SECONDS: ${ANALYSIS_INTERVAL_SECONDS:-300}
       MAX_EVENTS_PER_BATCH: ${MAX_EVENTS_PER_BATCH:-30}
       TZ: ${TZ:-Asia/Manila}
+    cpus: 0.5
+    mem_limit: 384m
     volumes:
       - security_ai_state:/state
     networks:
