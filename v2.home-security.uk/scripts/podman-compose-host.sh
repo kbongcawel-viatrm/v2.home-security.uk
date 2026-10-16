@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
 # podman-compose wrapper that always runs on the HOST (not inside Toolbox)
-# Uses 'podman compose' (built-in) instead of 'podman-compose' (standalone)
-# because podman-compose is not installed on the host, but Docker Compose
-# is available as a plugin for podman.
-#
-# IMPORTANT: Docker Compose needs DOCKER_HOST to connect to Podman socket.
-# We set DOCKER_HOST to the Podman socket path on the host.
+# Uses the standalone podman-compose executable on the host. It must be
+# installed on the host because Toolbox commands are delegated there.
 #
 # Usage:
 #   ./scripts/podman-compose-host.sh -f compose.yaml up -d
@@ -22,31 +18,37 @@ POLICY_FILE="$PROJECT_ROOT/containers-policy.json"
 
 # Use our custom containers policy to allow local storage and our images
 # This overrides the host's Secureblue default policy (which is too strict)
-# NOTE: Podman 5.x ignores these env vars for pulls made through
-# 'podman compose' (the API service still applies the host policy), so we
-# pre-pull missing images below with 'podman pull --signature-policy',
-# which is the flag that actually works.
+# NOTE: The policy environment variables are retained for Podman operations
+# performed by this wrapper/provider.
 if [[ -r "$POLICY_FILE" ]]; then
     export CONTAINERS_POLICY_JSON="$POLICY_FILE"
     # Also set the storage policy path for older Podman versions
     export CONTAINERS_SIGNATURE_POLICY_PATH="$POLICY_FILE"
 fi
 
-# Podman socket path on the host (for rootless user)
-PODMAN_SOCKET="unix:///run/user/$(id -u)/podman/podman.sock"
+run_podman_compose() {
+    local executable
+    executable="$(command -v podman-compose || true)"
+    if [[ -z "$executable" ]]; then
+        echo "Error: podman-compose is not installed on the host." >&2
+        echo "Install the standalone podman-compose package on the host, then retry." >&2
+        exit 127
+    fi
+    exec "$executable" "$@"
+}
 
 # Check if we're inside Toolbox
 if [[ -e /run/.toolboxenv ]]; then
-    # Inside Toolbox - run on host via host-exec.sh
-    # Unset CONTAINER_HOST (Toolbox's socket) and set DOCKER_HOST (host's socket)
-    # Use 'podman compose' (built-in) instead of 'podman-compose' (standalone)
-    exec env -u CONTAINER_HOST DOCKER_HOST="$PODMAN_SOCKET" "$HOST_EXEC" podman compose "$@"
+    # Resolve and run podman-compose on the host, not inside Toolbox.
+    exec env -u CONTAINER_HOST "$HOST_EXEC" bash -lc '
+        executable="$(command -v podman-compose || true)"
+        if [[ -z "$executable" ]]; then
+            echo "Error: podman-compose is not installed on the host." >&2
+            echo "Install the standalone podman-compose package on the host, then retry." >&2
+            exit 127
+        fi
+        exec "$executable" "$@"
+    ' podman-compose "$@"
 else
-    # Not in Toolbox - try podman-compose first, fall back to podman compose
-    if command -v podman-compose &>/dev/null; then
-        exec podman-compose "$@"
-    else
-        export DOCKER_HOST="$PODMAN_SOCKET"
-        exec podman compose "$@"
-    fi
+    run_podman_compose "$@"
 fi

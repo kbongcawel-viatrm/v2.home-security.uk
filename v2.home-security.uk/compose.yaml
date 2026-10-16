@@ -16,7 +16,7 @@ services:
       ZO_MEMORY_CACHE_DATAFUSION_MAX_SIZE: "256"
       TZ: ${TZ:-Asia/Manila}
     cpus: 1.0
-    mem_limit: 1280m
+    mem_limit: 2024m
     volumes:
       - openobserve_data:/data
     networks:
@@ -32,7 +32,7 @@ services:
       OLLAMA_NUM_PARALLEL: "1"
       OLLAMA_MAX_LOADED_MODELS: "1"
     cpus: 2.0
-    mem_limit: 2816m
+    mem_limit: 3000m
     volumes:
       - ollama_data:/root/.ollama
     networks:
@@ -49,6 +49,7 @@ services:
   fluent-bit:
     image: cr.fluentbit.io/fluent/fluent-bit:${FLUENT_BIT_TAG:-3.2}
     container_name: fluent-bit
+    userns_mode: "keep-id:uid=10001,gid=10001"
     restart: unless-stopped
     depends_on:
       openobserve:
@@ -59,7 +60,7 @@ services:
       OPENOBSERVE_ORG: ${OPENOBSERVE_ORG:-default}
       TZ: ${TZ:-Asia/Manila}
     cpus: 0.25
-    mem_limit: 128m
+    mem_limit: 400m
     volumes:
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,Z
       - ${SURICATA_LOG_DIR:-/var/log/suricata}:/var/log/suricata:ro,z
@@ -101,7 +102,7 @@ services:
       ARTIFACTS_DIR: /artifacts/generated/security-ai
       TZ: ${TZ:-Asia/Manila}
     cpus: 0.5
-    mem_limit: 384m
+    mem_limit: 400m
     volumes:
       - security_ai_state:/state
       - ./artifacts/generated:/artifacts/generated:rw,z
@@ -113,7 +114,7 @@ services:
   ansible-ai:
     build:
       context: ./ansible-ai
-    image: localhost/minimal-ai-ansible-drafter:1.0
+    image: demo.goharbor.io/minimal-ai-ansible-drafter:1.0
     container_name: ansible-ai
     userns_mode: "keep-id:uid=10001,gid=10001"
     restart: unless-stopped
