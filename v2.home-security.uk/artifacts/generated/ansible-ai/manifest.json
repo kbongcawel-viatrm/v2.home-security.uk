@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "agent": "ansible-ai",
+  "status": "draft_only",
+  "severity": "low",
+  "source_analysis_id": "305df5c78729f99c8fa98143f81beacb2e829a194b9992723523101d358cb074",
+  "target_inventory": "localhost (current host)",
+  "selected_artifacts": [],
+  "policy": {
+    "informational_or_low": "no host changes",
+    "medium": "stage Suricata alert rules only",
+    "high_or_critical": "stage Suricata rules plus inert Fail2ban and Firewalld drafts",
+    "automatic_execution": false,
+    "explicit_apply_flag": "apply_generated_artifacts=true",
+    "human_confirmation": "type APPLY",
+    "firewalld_script_executed": false,
+    "fail2ban_integration_configured": false,
+    "suricata_observation_seconds": 150,
+    "rollback_on_validation_or_health_error": true
+  }
+}

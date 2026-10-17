@@ -1,0 +1,38 @@
+# Draft only; applying requires apply_generated_artifacts=true and typing APPLY.
+- name: Draft-controlled security artifact deployment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: true
+  vars_prompt:
+  - name: confirm_security_artifact_apply
+    prompt: Type APPLY to stage reviewed security artifacts on this host
+    private: false
+  vars:
+    apply_generated_artifacts: false
+    security_artifacts_dir: '{{ playbook_dir }}/../security-ai'
+  tasks:
+  - name: Apply reviewed generated artifacts with explicit opt-in
+    block:
+    - name: No artifacts meet severity threshold
+      ansible.builtin.debug:
+        msg: No files will be copied and no services will be reloaded.
+    rescue:
+    - name: Report no changes to roll back
+      ansible.builtin.debug:
+        msg: No deployment artifacts met the severity threshold.
+    - name: Stop after rollback and report failure
+      ansible.builtin.fail:
+        msg: Artifact deployment failed; previous files were restored where available.
+    when: apply_generated_artifacts | bool and confirm_security_artifact_apply ==
+      'APPLY'
+  - name: Report this draft deployment
+    ansible.builtin.debug:
+      msg:
+      - 'Security severity: low'
+      - 'Selected artifacts: none'
+      - Fail2ban blocked-ips.txt is a draft; no Fail2ban jail currently consumes it.
+      - firewall-draft.sh is copied only as inert text and this playbook will never
+        execute it.
+      - Default is no-op; staging needs apply_generated_artifacts=true and an interactive
+        APPLY confirmation.

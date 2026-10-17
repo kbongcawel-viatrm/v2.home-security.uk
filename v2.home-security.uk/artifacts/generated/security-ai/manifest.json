@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "agent": "security-ai",
+  "status": "draft_only",
+  "generated_at": "2026-10-17T00:15:35.189437+00:00",
+  "analysis_id": "305df5c78729f99c8fa98143f81beacb2e829a194b9992723523101d358cb074",
+  "severity": "low",
+  "event_count": 7,
+  "event_refs": [
+    "bcd1e42a520477c36694",
+    "69947a0bb97388b8aa17",
+    "6808103ecd3c2cc7390d",
+    "9ed3d08d13cdbb73733d",
+    "f550f19f26b9cfb69c3e",
+    "eef3b44ddf62b5993e33",
+    "e065555faa4dd678bd88"
+  ],
+  "artifacts": {
+    "suricata": {
+      "path": "home-security.rules",
+      "rule_count": 0
+    },
+    "fail2ban": {
+      "path": "blocked-ips.txt",
+      "ip_count": 0,
+      "integrated": false
+    },
+    "firewalld": {
+      "path": "firewall-draft.sh",
+      "ip_count": 0,
+      "executable": false
+    }
+  },
+  "deployment_policy": {
+    "low_or_informational": "no automated blocking; Suricata alerts remain review-only",
+    "medium": "Suricata alert rules only",
+    "high_or_critical": "Suricata alerts plus narrowly scoped public IPv4 block drafts",
+    "automatic_application": false
+  },
+  "deployable_artifacts": []
+}
