@@ -3,6 +3,7 @@ name: v2.home-security.uk
 services:
   openobserve:
     image: public.ecr.aws/zinclabs/openobserve:${OPENOBSERVE_TAG:-latest}
+    pull_policy: never
     container_name: openobserve
     restart: unless-stopped
     ports:
@@ -25,6 +26,7 @@ services:
 
   ollama:
     image: docker.io/ollama/ollama:${OLLAMA_TAG:-latest}
+    pull_policy: never
     container_name: ollama
     restart: unless-stopped
     environment:
@@ -49,7 +51,7 @@ services:
   fluent-bit:
     image: cr.fluentbit.io/fluent/fluent-bit:${FLUENT_BIT_TAG:-3.2}
     container_name: fluent-bit
-    #userns_mode: "keep-id:uid=10001,gid=10001"
+    pull_policy: never 
     restart: unless-stopped
     depends_on:
       openobserve:
@@ -75,10 +77,8 @@ services:
     stop_grace_period: 30s
   
   security-ai:
-    build:
-      context: .
-      dockerfile: worker-image/Dockerfile
     image: demo.goharbor.io/home-security-uk/worker-template:latest
+    pull_policy: never
     container_name: security-ai
     command: ["/app/security-ai/worker.py"]
     userns_mode: "keep-id:uid=10001,gid=10001"
@@ -115,6 +115,7 @@ services:
 
   ansible-ai:
     image: demo.goharbor.io/home-security-uk/worker-template:latest
+    pull_policy: never
     container_name: ansible-ai
     command: ["/app/ansible-ai/worker.py"]
     userns_mode: "keep-id:uid=10001,gid=10001"
