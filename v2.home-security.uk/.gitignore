@@ -1,2 +1,5 @@
 # Test files
 .env.test
+.env
+
+artifacts/generated/*
