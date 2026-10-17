@@ -1,6 +1,6 @@
 # Minimal AI Security Lab
 
-A small Podman/Compose stack built around host journald and native Suricata logs, Fluent Bit, and OpenObserve. The `security-ai` worker reads bounded batches of security logs, sends them to OpenAI for analysis, and stores review-only recommendations in OpenObserve. OpenAI API-call traces are exported to the OpenObserve `default` traces stream with prompt/response content capture disabled by default.
+A small Podman/Compose stack built around host journald and native Suricata logs, Fluent Bit, OpenObserve, and Ollama. The `security-ai` worker reads bounded batches of security logs, sends them to the local Ollama service for analysis, and stores review-only recommendations in OpenObserve. OpenTelemetry spans for the existing Ollama HTTP generation requests are exported to the OpenObserve traces stream without recording prompt or response content.
 
 ## Services
 
@@ -10,7 +10,7 @@ A small Podman/Compose stack built around host journald and native Suricata logs
 | `fluent-bit` | Forwards Suricata EVE JSON and host journal records | None |
 | `openobserve` | Search, dashboards and log storage | `127.0.0.1:5080` |
 | `prometheus` | Scrapes Prometheus and remote-writes metrics to OpenObserve | `127.0.0.1:9090` |
-| `ollama` | Optional local LLM service; not used by `security-ai` | Internal network only |
+| `ollama` | Local LLM inference | Internal network only |
 | `security-ai` | Periodically analyzes new security, kernel, and OS boot-log events and stores recommendations | None |
 
 OpenObserve streams used by the current stack:
@@ -34,7 +34,7 @@ Severity policy: informational/low produces no selected host artifacts; medium s
 
 1. Native Suricata captures traffic on the configured host interface and writes `/var/log/suricata/eve.json`; host services and kernel messages are available from journald. Fluent Bit tails EVE JSON, Suricata text logs, and `/var/log/boot.log` if present.
 2. Fluent Bit reads host journal records, routes `_TRANSPORT=kernel` records to `kernel_logs`, and sends `/var/log/boot.log` records to `security_logs` with `source=host-bootlog`. Suricata records are marked `source=suricata`, while general host-journal records also flow to `security_logs`; journald records matching firewalld or Podman's container metadata are rerouted to `firewall_logs` or `container_logs` respectively. Records processed by Fluent Bit are also copied to `security_log_archive`.
-3. `security-ai` queries each configured OpenObserve stream independently with a small overlapping time window, deduplicates repeated results using stable event references, and applies a per-stream quota before producing a bounded batch for OpenAI. The overlap reduces boundary misses; recommendations include per-stream and combined-limit warnings if query results reach their caps. Cursor state and recent references live in `security_ai_state`. The model examines Suricata, host boot and kernel records for supported trends, startup changes, and telemetry-integrity indicators, with explicit caution not to treat missing records alone as proof of tampering. Security events are sent to OpenAI; set `OPENAI_API_KEY` in the ignored `.env` and review the provider's data handling terms before enabling the worker. Prompt and response bodies are disabled in OpenObserve traces by default via `TRACELOOP_TRACE_CONTENT=false`.
+3. `security-ai` queries each configured OpenObserve stream independently with a small overlapping time window, deduplicates repeated results using stable event references, and applies a per-stream quota before producing a bounded batch for Ollama. The overlap reduces boundary misses; recommendations include per-stream and combined-limit warnings if query results reach their caps. Cursor state and recent references live in `security_ai_state`. The model examines Suricata, host boot and kernel records for supported trends, startup changes, and telemetry-integrity indicators, with explicit caution not to treat missing records alone as proof of tampering. Manual OpenTelemetry spans record model, latency, and token counts for calls to the existing Ollama `/api/generate` endpoint; prompts and responses are omitted from the spans.
 4. The worker writes the model's structured findings and proposed rule/configuration changes to the `ai_recommendations` stream.
 5. A human reviews proposed changes, tests them in a controlled environment, commits approved changes to version control, deploys them, and verifies the resulting events.
 
@@ -145,8 +145,8 @@ Use OpenObserve's SQL editor to validate queries against the actual schema, then
 - Suricata is already installed and managed natively on the Fedora host as `suricata.service`, not by this Compose project. The deployment workflow only verifies the existing service and its EVE log; it does not install or configure Suricata.
 - Fluent Bit bind-mounts `${SURICATA_LOG_DIR:-/var/log/suricata}` and `/run/log/journal` read-only. The journal mount is deliberately not relabeled with `:Z` because rootless Podman cannot relabel the host journal directory; verify Fluent Bit can read it under host permissions and SELinux policy. Do not blindly relabel host log directories, which can interfere with host services.
 - OpenObserve is bound to localhost by default. Access it through a local browser at `http://127.0.0.1:5080`. Do not expose it directly to the Internet.
-- `OPENAI_API_KEY` is required in the ignored `.env`; protect that file with mode `600`. The `security-ai` worker sends security-event batches to OpenAI. The OpenAI client has no host-published endpoint requirement.
-- OpenAI instrumentation can export prompt/response content to traces depending on instrumentation settings. This stack defaults `TRACELOOP_TRACE_CONTENT=false`; do not enable content tracing unless that data handling is intended.
+- The security worker uses the existing Ollama HTTP endpoint at `http://ollama:11434`; Ollama is not published on the host. OpenObserve traces use the configured organization and `OPENOBSERVE_TRACES_STREAM_NAME` (default `default`).
+- Trace attributes intentionally exclude prompt and response bodies because security logs may contain sensitive operational data.
 - Set a unique OpenObserve password in the host env file `/etc/v2.home-security.uk/minimal-ai-security-lab.env` before first start. OpenObserve initializes root credentials on first start; changing environment variables later may not change an existing account password.
 - `OPENOBSERVE_USER` must be a valid email address, not the literal `admin`. The sample value is `dummykevin08@gmail.com`; set it in the protected host environment file or deployment secret source as appropriate. Preserve the `openobserve_data` volume; do not remove it to troubleshoot credentials because it contains stored data. If OpenObserve is already initialized, follow the version-matched account/password recovery procedure rather than assuming environment changes reset it.
 - The worker queries the last `OPENOBSERVE_QUERY_INTERVAL_MINUTES` (default 5) on its first run, then advances its saved query time after each successful cycle. It caps each batch at `MAX_EVENTS_PER_BATCH` (default 30). Initial historical logs are not backfilled into AI analysis.
@@ -196,7 +196,7 @@ podman-compose -f compose.yaml up -d --no-build
 
 If your installed `podman-compose` version does not support `config`, use the available Compose validation command and inspect the rendered configuration before deployment. Do not use `sudo` blindly: rootful Podman has a separate container/volume store from rootless Podman.
 
-The `security-ai` container image installs the OpenAI SDK, OpenAI instrumentation, and OpenObserve telemetry SDK when built. Its default model is `gpt-4o-mini`; override with `OPENAI_MODEL` in `.env` if desired.
+The `security-ai` container image installs the OpenObserve telemetry SDK when built. Its default Ollama model is `qwen2.5:3b`; override with `OLLAMA_MODEL` in `.env` if desired. Ollama calls continue to use the existing raw HTTP API.
 
 Check status and logs (run the host service checks with sufficient privileges if required):
 
@@ -268,7 +268,7 @@ The script uses the running `security-ai` container's OpenObserve connection set
    podman exec fluent-bit sh -c 'test -r /var/log/suricata/eve.json && echo readable'
    ```
 3. In OpenObserve, inspect `security_logs` for `source=suricata` and `source=host-journal`; inspect `firewall_logs` for `source=firewalld` and `container_logs` for `source=podman-container`. Each stream is created upon first ingestion. Container log routing requires journald-backed Podman logs with the `CONTAINER_ID_FULL` field; other log drivers are not tailed by this stack.
-4. The worker only creates `ai_recommendations` after it successfully queries new events from its input streams, completes an OpenAI analysis, and writes the result. Its bounded input includes Suricata EVE/text and kernel records; `/var/log/boot.log` is included if the file exists and is readable. Check `podman logs --tail 100 security-ai` for `submitted AI analysis...`; `no new security logs to analyze` means there was no analysis to write in that cycle. An `analysis cycle failed` message means the query or analysis could not complete; resolve the logged OpenObserve/OpenAI connectivity or authentication error and check again after a successful cycle. OpenAI traces appear under Traces in the configured traces stream after a successful API call.
+4. The worker only creates `ai_recommendations` after it successfully queries new events from its input streams, completes an Ollama analysis, and writes the result. Its bounded input includes Suricata EVE/text and kernel records; `/var/log/boot.log` is included if the file exists and is readable. Check `podman logs --tail 100 security-ai` for `submitted AI analysis...`; `no new security logs to analyze` means there was no analysis to write in that cycle. An `analysis cycle failed` message means the query or analysis could not complete; resolve the logged OpenObserve/Ollama connectivity or authentication error and check again after a successful cycle. Ollama inference spans appear under Traces in the configured traces stream after a successful API call.
 
 ## Operations and maintenance
 

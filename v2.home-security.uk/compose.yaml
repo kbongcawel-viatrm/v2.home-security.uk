@@ -132,6 +132,8 @@ services:
     depends_on:
       openobserve:
         condition: service_started
+      ollama:
+        condition: service_healthy
     environment:
       ANSIBLE_LOCAL_TEMP: /tmp/ansible-local
       ANSIBLE_REMOTE_TEMP: /tmp/ansible-remote
@@ -142,10 +144,9 @@ services:
       OPENOBSERVE_TRACES_STREAM_NAME: ${OPENOBSERVE_TRACES_STREAM_NAME:-default}
       OPENOBSERVE_QUERY_INTERVAL_MINUTES: ${OPENOBSERVE_QUERY_INTERVAL_MINUTES:-5}
       OPENOBSERVE_QUERY_OVERLAP_SECONDS: ${OPENOBSERVE_QUERY_OVERLAP_SECONDS:-30}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in ignored .env}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
-      OPENAI_REQUEST_TIMEOUT_SECONDS: ${OPENAI_REQUEST_TIMEOUT_SECONDS:-600}
-      TRACELOOP_TRACE_CONTENT: ${TRACELOOP_TRACE_CONTENT:-false}
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      OLLAMA_REQUEST_TIMEOUT_SECONDS: ${OLLAMA_REQUEST_TIMEOUT_SECONDS:-600}
       ANALYSIS_INTERVAL_SECONDS: ${ANALYSIS_INTERVAL_SECONDS:-300}
       MAX_EVENTS_PER_BATCH: ${MAX_EVENTS_PER_BATCH:-30}
       ARTIFACTS_DIR: /artifacts/generated/security-ai

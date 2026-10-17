@@ -10,6 +10,10 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
+from openobserve import openobserve_init
+
 from artifact_writer import write_artifacts
 from source_catalog import recommend_sources
 
@@ -349,12 +353,34 @@ def analyze(events):
         
         "Events:\n" + json.dumps(events, ensure_ascii=False)[:24000]
     )
-    result = request_json(
-        f"{OLLAMA_URL}/api/generate",
-        {"model": MODEL, "prompt": prompt, "stream": False, "format": "json",
-         "options": {"temperature": 0.2}},
-        timeout=OLLAMA_REQUEST_TIMEOUT,
-    )
+    tracer = trace.get_tracer("security-ai.ollama")
+    with tracer.start_as_current_span("ollama.generate") as span:
+        span.set_attribute("gen_ai.system", "ollama")
+        span.set_attribute("gen_ai.request.model", MODEL)
+        span.set_attribute("gen_ai.request.temperature", 0.2)
+        span.set_attribute("gen_ai.operation.name", "generate")
+        span.set_attribute("server.address", OLLAMA_URL.split("://", 1)[-1].split(":", 1)[0])
+        try:
+            result = request_json(
+                f"{OLLAMA_URL}/api/generate",
+                {"model": MODEL, "prompt": prompt, "stream": False, "format": "json",
+                 "options": {"temperature": 0.2}},
+                timeout=OLLAMA_REQUEST_TIMEOUT,
+            )
+        except Exception as exc:
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
+            raise
+        elapsed_ms = result.get("total_duration")
+        if isinstance(elapsed_ms, (int, float)):
+            span.set_attribute("ollama.total_duration_ns", int(elapsed_ms))
+        prompt_tokens = result.get("prompt_eval_count")
+        completion_tokens = result.get("eval_count")
+        if isinstance(prompt_tokens, int):
+            span.set_attribute("gen_ai.usage.input_tokens", prompt_tokens)
+        if isinstance(completion_tokens, int):
+            span.set_attribute("gen_ai.usage.output_tokens", completion_tokens)
+        span.set_attribute("ollama.done", bool(result.get("done", True)))
     raw = result.get("response", "{}")
     try:
         analysis = json.loads(raw)
@@ -367,7 +393,25 @@ def analyze(events):
     return analysis
 
 def main():
-    print(f"security-ai worker started; model={MODEL}; interval={INTERVAL}s", flush=True)
+    # Export manual inference spans without changing the existing Ollama HTTP client.
+    auth_token = "Basic " + base64.b64encode(
+        f"{OO_USER}:{OO_PASSWORD}".encode("utf-8")
+    ).decode("ascii")
+    openobserve_init(
+        url=OO_URL,
+        org=OO_ORG,
+        auth_token=auth_token,
+        stream_name=os.getenv("OPENOBSERVE_TRACES_STREAM_NAME", "default"),
+        traces=True,
+        logs=False,
+        metrics=False,
+        resource_attributes={"service.name": "security-ai"},
+    )
+    print(
+        f"security-ai worker started; model={MODEL}; interval={INTERVAL}s; "
+        f"trace_stream={os.getenv('OPENOBSERVE_TRACES_STREAM_NAME', 'default')}",
+        flush=True,
+    )
     while True:
         start = time.time()
         offsets = load_offsets()
