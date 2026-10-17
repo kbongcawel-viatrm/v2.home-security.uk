@@ -129,7 +129,7 @@ services:
       start_period: 15s
   
   security-ai:
-    image: demo.goharbor.io/home-security-uk/worker-template:1.0
+    image: demo.goharbor.io/home-security-uk/worker-template:1.2
     pull_policy: never
     container_name: security-ai
     command: ["/app/security-ai/worker.py"]
@@ -174,7 +174,7 @@ services:
       start_period: 30s
 
   ansible-ai:
-    image: demo.goharbor.io/home-security-uk/worker-template:1.0
+    image: demo.goharbor.io/home-security-uk/worker-template:1.2
     pull_policy: never
     container_name: ansible-ai
     command: ["/app/ansible-ai/worker.py"]

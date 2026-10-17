@@ -190,13 +190,13 @@ podman-compose -f compose.yaml config
 Start the services:
 
 ```bash
-CONTAINERS_POLICY_JSON="$PWD/containers-policy.json" podman build --signature-policy "$PWD/containers-policy.json" -t localhost/minimal-ai-security-worker:1.0 ./security-ai
+CONTAINERS_POLICY_JSON="$PWD/containers-policy.json" podman build --signature-policy "$PWD/containers-policy.json" -t demo.goharbor.io/home-security-uk/worker-template:1.2 -f worker-image/Dockerfile .
 podman-compose -f compose.yaml up -d --no-build
 ```
 
 If your installed `podman-compose` version does not support `config`, use the available Compose validation command and inspect the rendered configuration before deployment. Do not use `sudo` blindly: rootful Podman has a separate container/volume store from rootless Podman.
 
-The `security-ai` container image installs the OpenObserve telemetry SDK when built. Its default Ollama model is `qwen2.5:3b`; override with `OLLAMA_MODEL` in `.env` if desired. Ollama calls continue to use the existing raw HTTP API.
+The shared `worker-template` image contains both `security-ai` and `ansible-ai`. Build it from `worker-image/Dockerfile` before deployment. The security worker image installs the OpenObserve telemetry SDK; its default Ollama model is `qwen2.5:3b`. Ollama calls continue to use the existing raw HTTP API.
 
 Check status and logs (run the host service checks with sufficient privileges if required):
 
