@@ -3,7 +3,7 @@
   "agent": "ansible-ai",
   "status": "draft_only",
   "severity": "low",
-  "source_analysis_id": "82bd418661d972242e01a73f29fe477731a383ca05fa1371c3674f56647d1c3c",
+  "source_analysis_id": "8ddc2f7aa5a9884bd0f02c3aa561043c5b67e46d422ed9286aa74a60f5228e8e",
   "target_inventory": "localhost (current host)",
   "selected_artifacts": [],
   "policy": {

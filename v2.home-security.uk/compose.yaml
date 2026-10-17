@@ -11,6 +11,13 @@ services:
     environment:
       ZO_ROOT_USER_EMAIL: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
       ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
+      ZO_SMTP_ENABLED: "true"
+      ZO_SMTP_HOST: smtp.gmail.com
+      ZO_SMTP_PORT: "587"
+      ZO_SMTP_USER_NAME: dummykevin08@gmail.com
+      ZO_SMTP_PASSWORD: "xcsp ixyq wbam lyex"
+      ZO_SMTP_FROM_EMAIL: dummykevin08gmail.com
+      ZO_SMTP_ENCRYPTION: starttls
       ZO_DATA_DIR: /data
       ZO_LOCAL_MODE: "true"
       ZO_MEMORY_CACHE_MAX_SIZE: "128"
