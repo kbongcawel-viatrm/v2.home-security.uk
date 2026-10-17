@@ -63,6 +63,12 @@ services:
     cpus: 0.5
     mem_limit: 512m
     stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "promtool", "query", "instant", "http://localhost:9090", "up"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   ollama:
     image: docker.io/ollama/ollama:${OLLAMA_TAG:-latest}
