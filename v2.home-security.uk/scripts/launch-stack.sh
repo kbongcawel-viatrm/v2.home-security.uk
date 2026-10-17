@@ -100,12 +100,12 @@ EOF
 
 show_menu() {
     printf "\n${BOLD}Choose an action:${RESET}\n\n"
-    printf "  ${GREEN}1${RESET}) Start containers\n"
-    printf "  ${YELLOW}2${RESET}) Force-recreate containers\n"
-    printf "  ${BLUE}3${RESET}) Restart containers\n"
-    printf "  ${MAGENTA}4${RESET}) Show container status\n"
-    printf "  ${CYAN}5${RESET}) Follow container logs\n"
-    printf "  ${RED}6${RESET}) Stop containers\n"
+    printf "  ${GREEN}1${RESET}) Start \n"
+    printf "  ${RED}6${RESET}) Shutdown \n"
+    printf "  ${BLUE}3${RESET}) Restart \n"
+    printf "  ${MAGENTA}4${RESET}) Health check \n"
+    printf "  ${CYAN}5${RESET}) Tail logs\n"
+    #printf "  ${YELLOW}2${RESET}) Recreate (force) \n"
     printf "  ${GRAY}0${RESET}) Exit\n\n"
 }
 
@@ -456,7 +456,12 @@ main() {
                 pause
                 ;;
             2)
-                start_stack recreate
+		read -r -p "Stop all project containers? [y/N]: " confirm
+                if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                    run_compose down
+                else
+                    warn "Stop operation cancelled."
+                fi
                 pause
                 ;;
             3)
@@ -472,15 +477,11 @@ main() {
                 run_compose logs -f
                 pause
                 ;;
-            6)
-                read -r -p "Stop all project containers? [y/N]: " confirm
-                if [[ "$confirm" =~ ^[Yy]$ ]]; then
-                    run_compose down
-                else
-                    warn "Stop operation cancelled."
-                fi
-                pause
-                ;;
+            #6)
+                #start_stack recreate
+                #pause
+                #;;
+                
             0)
                 success "Exiting container manager."
                 exit 0
