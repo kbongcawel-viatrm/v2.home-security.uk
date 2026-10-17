@@ -47,7 +47,6 @@ services:
         condition: service_started
     command:
       - --config.file=/etc/prometheus/prometheus.yml
-      - --config.expand-env=true
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
     environment:

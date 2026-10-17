@@ -21,7 +21,7 @@ From the repository root, with `.env` configured and OpenObserve running:
 ./scripts/podman-compose-host.sh -f compose.yaml up -d prometheus
 ```
 
-Prometheus configuration is in `prometheus/prometheus.yml`. It enables environment expansion, scrapes Prometheus itself every 30 seconds, and queues up to 10,000 samples per remote-write batch. Its local TSDB is retained in the `prometheus_data` named volume; the default retention is 15 days and can be changed with `PROMETHEUS_RETENTION`.
+Prometheus configuration is in `prometheus/prometheus.yml`. Prometheus expands environment-variable references in the YAML configuration automatically. It scrapes itself every 30 seconds and queues up to 10,000 samples per remote-write batch. Its local TSDB is retained in the `prometheus_data` named volume; the default retention is 15 days and can be changed with `PROMETHEUS_RETENTION`.
 
 ## Check Prometheus
 
