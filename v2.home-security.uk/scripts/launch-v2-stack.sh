@@ -54,7 +54,7 @@ while :; do
     ready=0
     details=()
     for service in "${services[@]}"; do
-        # Compose declares a health check only for Ollama. Inspect state through
+        # Compose health checks report application/service liveness. Inspect through
         # the host-aware Podman wrapper; empty/error means not yet created.
         state="$("$podman" inspect --format '{{.State.Status}}' "$service" 2>/dev/null || true)"
         health="$("$podman" inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$service" 2>/dev/null || true)"
