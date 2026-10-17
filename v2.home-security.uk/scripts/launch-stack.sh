@@ -406,7 +406,7 @@ start_stack() {
     case "$mode" in
         recreate)
             animate_command "Force-recreating containers" \
-                run_compose up -d --force-recreate || {
+                echo "Shutting down containers" && run_compose down --remove-orphans && echo "Re-creating containers" run_compose up -d --force-recreate || {
                 show_status
                 return 1
             }
