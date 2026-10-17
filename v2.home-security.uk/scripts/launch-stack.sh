@@ -103,22 +103,41 @@ show_menu() {
     printf "  ${GREEN}1${RESET}) Start \n"
     printf "  ${RED}6${RESET}) Shutdown \n"
     printf "  ${BLUE}3${RESET}) Restart \n"
-    printf "  ${MAGENTA}4${RESET}) Health check \n"
-    printf "  ${CYAN}5${RESET}) Tail logs\n"
+    printf "  ${MAGENTA}4${RESET}) Pod Health \n"
+    printf "  ${CYAN}5${RESET}) Pod Logs \n"
     #printf "  ${YELLOW}2${RESET}) Recreate (force) \n"
     printf "  ${GRAY}0${RESET}) Exit\n\n"
 }
 
 run_compose() {
-    podman-compose -f "$COMPOSE_FILE" "$@"
+    if [[ -x "$(dirname -- "${BASH_SOURCE[0]}")/podman-compose-host.sh" ]]; then
+        "$(dirname -- "${BASH_SOURCE[0]}")/podman-compose-host.sh" -f "$COMPOSE_FILE" "$@" 2>/dev/null
+    else
+        podman-compose -f "$COMPOSE_FILE" "$@"
+    fi
 }
 
 get_container_ids() {
-    run_compose ps -q 2>/dev/null
+    local output compose_status
+    output=$(run_compose ps -q 2>/dev/null) || return $?
+    printf '%s\n' "$output" | awk 'NF && $0 ~ /^[[:xdigit:]]+$/ { print }'
+
+    inspect_container '{{.Id}}' openobserve-health 2>/dev/null || \
+        inspect_container '{{.Id}}' openobserve_health 2>/dev/null || true
+}
+
+inspect_container() {
+    local format="$1" container="$2"
+
+    if [[ -x "$(dirname -- "${BASH_SOURCE[0]}")/podman-host.sh" ]]; then
+        "$(dirname -- "${BASH_SOURCE[0]}")/podman-host.sh" inspect --format "$format" "$container"
+    else
+        podman inspect --format "$format" "$container"
+    fi
 }
 
 show_status() {
-    local ids id name state health result
+    local ids id name state health result health_container_found=0
 
     line
     printf "${BOLD}${CYAN}HOME-SEC CONTAINER STATUS${RESET}\n\n"
@@ -132,12 +151,15 @@ show_status() {
     fi
 
     for id in "${ids[@]}"; do
-        result=$(podman inspect --format \
+        result=$(inspect_container \
             '{{.Name}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' \
             "$id" 2>/dev/null) || result="unknown|missing|unknown"
 
         IFS='|' read -r name state health <<< "$result"
         name="${name#/}"
+        if [[ "$name" == "openobserve-health" || "$name" == "openobserve_health" ]]; then
+            health_container_found=1
+        fi
 
         case "$state:$health" in
             running:healthy|running:no-healthcheck)
@@ -154,6 +176,11 @@ show_status() {
                 ;;
         esac
     done
+
+    if (( health_container_found == 0 )); then
+        printf " ${RED}✖${RESET} %-24s ${RED}%-12s${RESET} %s\n" \
+            "openobserve-health" "missing" "not created"
+    fi
 
     line
 }
@@ -185,7 +212,7 @@ wait_for_containers() {
         pending=0
 
         for id in "${ids[@]}"; do
-            result=$(podman inspect --format \
+            result=$(inspect_container \
                 '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
                 "$id" 2>/dev/null) || result="missing|none"
 
