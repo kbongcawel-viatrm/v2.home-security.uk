@@ -16,7 +16,7 @@ services:
       ZO_SMTP_PORT: "587"
       ZO_SMTP_USER_NAME: dummykevin08@gmail.com
       ZO_SMTP_PASSWORD: "xcsp ixyq wbam lyex"
-      ZO_SMTP_FROM_EMAIL: dummykevin08gmail.com
+      ZO_SMTP_FROM_EMAIL: dummykevin08@gmail.com
       ZO_SMTP_ENCRYPTION: starttls
       ZO_DATA_DIR: /data
       ZO_LOCAL_MODE: "true"
