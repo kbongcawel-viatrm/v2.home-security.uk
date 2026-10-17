@@ -76,9 +76,11 @@ services:
   
   security-ai:
     build:
-      context: ./security-ai
-    image: localhost/minimal-ai-security-worker:1.0
+      context: .
+      dockerfile: worker-image/Dockerfile
+    image: demo.goharbor.io/home-security-uk/worker-template:latest
     container_name: security-ai
+    command: ["/app/security-ai/worker.py"]
     userns_mode: "keep-id:uid=10001,gid=10001"
     restart: unless-stopped
     depends_on:
@@ -112,10 +114,9 @@ services:
     stop_grace_period: 30s
 
   ansible-ai:
-    build:
-      context: ./ansible-ai
-    image: demo.goharbor.io/minimal-ai-ansible-drafter:1.0
+    image: demo.goharbor.io/home-security-uk/worker-template:latest
     container_name: ansible-ai
+    command: ["/app/ansible-ai/worker.py"]
     userns_mode: "keep-id:uid=10001,gid=10001"
     restart: unless-stopped
     depends_on:
