@@ -37,6 +37,33 @@ services:
       retries: 3
       start_period: 60s
 
+  prometheus:
+    image: docker.io/prom/prometheus:${PROMETHEUS_TAG:-latest}
+    pull_policy: never
+    container_name: prometheus
+    restart: unless-stopped
+    depends_on:
+      openobserve:
+        condition: service_started
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --config.expand-env=true
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+    environment:
+      OPENOBSERVE_USER: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
+      OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090/tcp"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,Z
+      - prometheus_data:/prometheus
+    networks:
+      - security
+    cpus: 0.5
+    mem_limit: 512m
+    stop_grace_period: 30s
+
   ollama:
     image: docker.io/ollama/ollama:${OLLAMA_TAG:-latest}
     pull_policy: never
@@ -105,8 +132,6 @@ services:
     depends_on:
       openobserve:
         condition: service_started
-      ollama:
-        condition: service_healthy
     environment:
       ANSIBLE_LOCAL_TEMP: /tmp/ansible-local
       ANSIBLE_REMOTE_TEMP: /tmp/ansible-remote
@@ -114,11 +139,13 @@ services:
       OPENOBSERVE_USER: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
       OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
       OPENOBSERVE_ORG: ${OPENOBSERVE_ORG:-default}
+      OPENOBSERVE_TRACES_STREAM_NAME: ${OPENOBSERVE_TRACES_STREAM_NAME:-default}
       OPENOBSERVE_QUERY_INTERVAL_MINUTES: ${OPENOBSERVE_QUERY_INTERVAL_MINUTES:-5}
       OPENOBSERVE_QUERY_OVERLAP_SECONDS: ${OPENOBSERVE_QUERY_OVERLAP_SECONDS:-30}
-      OLLAMA_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
-      OLLAMA_REQUEST_TIMEOUT_SECONDS: ${OLLAMA_REQUEST_TIMEOUT_SECONDS:-600}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in ignored .env}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_REQUEST_TIMEOUT_SECONDS: ${OPENAI_REQUEST_TIMEOUT_SECONDS:-600}
+      TRACELOOP_TRACE_CONTENT: ${TRACELOOP_TRACE_CONTENT:-false}
       ANALYSIS_INTERVAL_SECONDS: ${ANALYSIS_INTERVAL_SECONDS:-300}
       MAX_EVENTS_PER_BATCH: ${MAX_EVENTS_PER_BATCH:-30}
       ARTIFACTS_DIR: /artifacts/generated/security-ai
@@ -181,3 +208,4 @@ volumes:
   security_ai_state:
   security_log_archive:
   ansible_ai_temp:
+  prometheus_data:
