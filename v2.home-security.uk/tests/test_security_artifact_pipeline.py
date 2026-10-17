@@ -104,6 +104,15 @@ class ArtifactWriterTests(unittest.TestCase):
         self.assertIn("already-authenticated session", prompt)
         self.assertIn("recommended_read_only_follow_up", prompt)
         self.assertIn("session-event", prompt)
+        self.assertEqual(request.call_args.kwargs["timeout"], security_worker.OLLAMA_REQUEST_TIMEOUT)
+
+    def test_worker_saves_offsets_atomically(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_file = Path(directory) / "offsets.json"
+            with patch.object(security_worker, "STATE_FILE", state_file):
+                security_worker.save_offsets({"stream_cursors": {"security_logs": "2026-10-17T00:00:00Z"}})
+            self.assertEqual(json.loads(state_file.read_text())["stream_cursors"].keys(), {"security_logs"})
+            self.assertFalse(state_file.with_suffix(".tmp").exists())
 
     def test_manifest_flows_through_ansible_worker_to_draft_playbook(self):
         with tempfile.TemporaryDirectory() as directory:

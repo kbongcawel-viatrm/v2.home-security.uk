@@ -27,6 +27,7 @@ INTERVAL = max(60, int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "300")))
 MAX_EVENTS = max(1, min(100, int(os.getenv("MAX_EVENTS_PER_BATCH", "30"))))
 QUERY_INTERVAL = max(1, int(os.getenv("OPENOBSERVE_QUERY_INTERVAL_MINUTES", "5")))
 OVERLAP_SECONDS = max(0, min(300, int(os.getenv("OPENOBSERVE_QUERY_OVERLAP_SECONDS", "30"))))
+OLLAMA_REQUEST_TIMEOUT = max(60, int(os.getenv("OLLAMA_REQUEST_TIMEOUT_SECONDS", "600")))
 MAX_SEEN_REFS = 5000
 INPUT_STREAMS = tuple(filter(None, os.getenv(
     "OPENOBSERVE_INPUT_STREAMS", "security_logs,firewall_logs,container_logs,kernel_logs"
@@ -352,7 +353,7 @@ def analyze(events):
         f"{OLLAMA_URL}/api/generate",
         {"model": MODEL, "prompt": prompt, "stream": False, "format": "json",
          "options": {"temperature": 0.2}},
-        timeout=240,
+        timeout=OLLAMA_REQUEST_TIMEOUT,
     )
     raw = result.get("response", "{}")
     try:

@@ -2,18 +2,18 @@
   "version": 1,
   "agent": "security-ai",
   "status": "draft_only",
-  "generated_at": "2026-10-17T00:15:35.189437+00:00",
-  "analysis_id": "305df5c78729f99c8fa98143f81beacb2e829a194b9992723523101d358cb074",
+  "generated_at": "2026-10-17T05:01:49.997109+00:00",
+  "analysis_id": "82bd418661d972242e01a73f29fe477731a383ca05fa1371c3674f56647d1c3c",
   "severity": "low",
   "event_count": 7,
   "event_refs": [
-    "bcd1e42a520477c36694",
-    "69947a0bb97388b8aa17",
-    "6808103ecd3c2cc7390d",
-    "9ed3d08d13cdbb73733d",
-    "f550f19f26b9cfb69c3e",
-    "eef3b44ddf62b5993e33",
-    "e065555faa4dd678bd88"
+    "a0ec7df89b2a84e83d3a",
+    "9def4fc736a58030b3d9",
+    "3146111e370c2659ed2a",
+    "3ce5806bf70a493fffff",
+    "4db24eeca95d44e680f8",
+    "44fcf811b69911494ddb",
+    "0c48e9647cda5ed54410"
   ],
   "artifacts": {
     "suricata": {

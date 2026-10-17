@@ -77,7 +77,7 @@ services:
     stop_grace_period: 30s
   
   security-ai:
-    image: demo.goharbor.io/home-security-uk/worker-template:latest
+    image: demo.goharbor.io/home-security-uk/worker-template:1.0
     pull_policy: never
     container_name: security-ai
     command: ["/app/security-ai/worker.py"]
@@ -99,6 +99,7 @@ services:
       OPENOBSERVE_QUERY_OVERLAP_SECONDS: ${OPENOBSERVE_QUERY_OVERLAP_SECONDS:-30}
       OLLAMA_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      OLLAMA_REQUEST_TIMEOUT_SECONDS: ${OLLAMA_REQUEST_TIMEOUT_SECONDS:-600}
       ANALYSIS_INTERVAL_SECONDS: ${ANALYSIS_INTERVAL_SECONDS:-300}
       MAX_EVENTS_PER_BATCH: ${MAX_EVENTS_PER_BATCH:-30}
       ARTIFACTS_DIR: /artifacts/generated/security-ai
@@ -114,7 +115,7 @@ services:
     stop_grace_period: 30s
 
   ansible-ai:
-    image: demo.goharbor.io/home-security-uk/worker-template:latest
+    image: demo.goharbor.io/home-security-uk/worker-template:1.0
     pull_policy: never
     container_name: ansible-ai
     command: ["/app/ansible-ai/worker.py"]
