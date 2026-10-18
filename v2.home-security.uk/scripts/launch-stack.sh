@@ -465,7 +465,7 @@ get_memory() {
 animate_command "HOME-SEC CONTAINER MEMORY USAGE"
 echo
 podman inspect --format '{{.Name}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}|{{.HostConfig.Memory}}' \
-  ollama fluent-bit prometheus openobserve openobserve-health security-ai ansible-ai |
+  ollama fluent-bit prometheus openobserve security-ai ansible-ai |
 while IFS='|' read -r name health memory; do
     mib=$((memory / 1024 / 1024))
     [[ "$memory" -eq 0 ]] && mib="unlimited"
