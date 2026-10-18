@@ -42,26 +42,6 @@ services:
       retries: 3
       start_period: 60s
 
-  openobserve-health:
-    image: docker.io/library/python:3.12-slim
-    pull_policy: never
-    container_name: openobserve-health
-    restart: unless-stopped
-    cpus: 0.5
-    mem_limit: 128m
-    depends_on:
-      openobserve:
-        condition: service_started
-    command: ["python", "-c", "import time; time.sleep(2147483647)"]
-    networks:
-      - security
-    healthcheck:
-      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-
   prometheus:
     image: docker.io/prom/prometheus:${PROMETHEUS_TAG:-latest}
     pull_policy: never
