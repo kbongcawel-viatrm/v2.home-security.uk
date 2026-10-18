@@ -59,10 +59,11 @@ services:
     depends_on:
       openobserve:
         condition: service_started
+    entrypoint: ["/bin/sh", "-ec"]
     command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - |
+        sed "s|OPENOBSERVE_ORG_PLACEHOLDER|$${OPENOBSERVE_ORG}|g" /etc/prometheus/prometheus.yml > /tmp/prometheus.yml
+        exec /bin/prometheus --config.file=/tmp/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=$${PROMETHEUS_RETENTION:-15d}
     environment:
       OPENOBSERVE_USER: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
       OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
