@@ -121,9 +121,6 @@ get_container_ids() {
     local output compose_status
     output=$(run_compose ps -q 2>/dev/null) || return $?
     printf '%s\n' "$output" | awk 'NF && $0 ~ /^[[:xdigit:]]+$/ { print }'
-
-    inspect_container '{{.Id}}' openobserve-health 2>/dev/null || \
-        inspect_container '{{.Id}}' openobserve_health 2>/dev/null || true
 }
 
 inspect_container() {
@@ -137,7 +134,7 @@ inspect_container() {
 }
 
 show_status() {
-    local ids id name state health result health_container_found=0
+    local ids id name state health result
 
     line
     printf "${BOLD}${CYAN}HOME-SEC CONTAINER STATUS${RESET}\n\n"
@@ -157,9 +154,6 @@ show_status() {
 
         IFS='|' read -r name state health <<< "$result"
         name="${name#/}"
-        if [[ "$name" == "openobserve-health" || "$name" == "openobserve_health" ]]; then
-            health_container_found=1
-        fi
 
         case "$state:$health" in
             running:healthy|running:no-healthcheck)
@@ -176,11 +170,6 @@ show_status() {
                 ;;
         esac
     done
-
-    if (( health_container_found == 0 )); then
-        printf " ${RED}✖${RESET} %-24s ${RED}%-12s${RESET} %s\n" \
-            "openobserve-health" "missing" "not created"
-    fi
 
     line
 }
