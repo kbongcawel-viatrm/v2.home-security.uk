@@ -2,7 +2,13 @@ name: v2.home-security.uk
 
 services:
   openobserve:
-    image: public.ecr.aws/zinclabs/openobserve:${OPENOBSERVE_TAG:-latest}
+    image: local/openobserve-with-curl:${OPENOBSERVE_IMAGE_TAG:-curl-healthcheck}
+    build:
+      context: .
+      dockerfile: openobserve/Dockerfile
+      args:
+        OPENOBSERVE_BASE_IMAGE: public.ecr.aws/zinclabs/openobserve:${OPENOBSERVE_TAG:-latest}
+    pull_policy: never
     container_name: openobserve
     restart: unless-stopped
     ports:
@@ -10,21 +16,69 @@ services:
     environment:
       ZO_ROOT_USER_EMAIL: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
       ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
+      ZO_SMTP_ENABLED: "true"
+      ZO_SMTP_HOST: smtp.gmail.com
+      ZO_SMTP_PORT: "587"
+      ZO_SMTP_USER_NAME: dummykevin08@gmail.com
+      ZO_SMTP_PASSWORD: "xcsp ixyq wbam lyex"
+      ZO_SMTP_FROM_EMAIL: dummykevin08@gmail.com
+      ZO_SMTP_ENCRYPTION: starttls
       ZO_DATA_DIR: /data
       ZO_LOCAL_MODE: "true"
       ZO_MEMORY_CACHE_MAX_SIZE: "128"
       ZO_MEMORY_CACHE_DATAFUSION_MAX_SIZE: "256"
       TZ: ${TZ:-Asia/Manila}
     cpus: 1.0
-    mem_limit: 1280m
+    mem_limit: 2024m
     volumes:
       - openobserve_data:/data
     networks:
       - security
     stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  prometheus:
+    image: docker.io/prom/prometheus:${PROMETHEUS_TAG:-latest}
+    pull_policy: never
+    container_name: prometheus
+    restart: unless-stopped
+    depends_on:
+      openobserve:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        sed "s|OPENOBSERVE_ORG_PLACEHOLDER|$${OPENOBSERVE_ORG}|g" /etc/prometheus/prometheus.yml > /tmp/prometheus.yml
+        exec /bin/prometheus --config.file=/tmp/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=$${PROMETHEUS_RETENTION:-15d}
+    environment:
+      OPENOBSERVE_USER: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
+      OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
+      OPENOBSERVE_ORG: ${OPENOBSERVE_ORG:-default}
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090/tcp"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,Z
+      - prometheus_data:/prometheus
+    networks:
+      - security
+    cpus: 0.5
+    mem_limit: 512m
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "promtool", "query", "instant", "http://localhost:9090", "up"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   ollama:
     image: docker.io/ollama/ollama:${OLLAMA_TAG:-latest}
+    pull_policy: never
     container_name: ollama
     restart: unless-stopped
     environment:
@@ -32,7 +86,7 @@ services:
       OLLAMA_NUM_PARALLEL: "1"
       OLLAMA_MAX_LOADED_MODELS: "1"
     cpus: 2.0
-    mem_limit: 2816m
+    mem_limit: 2048m
     volumes:
       - ollama_data:/root/.ollama
     networks:
@@ -49,6 +103,7 @@ services:
   fluent-bit:
     image: cr.fluentbit.io/fluent/fluent-bit:${FLUENT_BIT_TAG:-3.2}
     container_name: fluent-bit
+    pull_policy: never 
     restart: unless-stopped
     depends_on:
       openobserve:
@@ -59,7 +114,7 @@ services:
       OPENOBSERVE_ORG: ${OPENOBSERVE_ORG:-default}
       TZ: ${TZ:-Asia/Manila}
     cpus: 0.25
-    mem_limit: 128m
+    mem_limit: 400m
     volumes:
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,Z
       - ${SURICATA_LOG_DIR:-/var/log/suricata}:/var/log/suricata:ro,z
@@ -72,12 +127,19 @@ services:
       - security
     command: ["-c", "/fluent-bit/etc/fluent-bit.conf"]
     stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/fluent-bit.conf", "--dry-run"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
   
   security-ai:
-    build:
-      context: ./security-ai
-    image: localhost/minimal-ai-security-worker:1.0
+    image: demo.goharbor.io/home-security-uk/worker-template:1.2
+    pull_policy: never
     container_name: security-ai
+    command: ["/app/security-ai/worker.py"]
+    userns_mode: "keep-id:uid=10001,gid=10001"
     restart: unless-stopped
     depends_on:
       openobserve:
@@ -85,24 +147,68 @@ services:
       ollama:
         condition: service_healthy
     environment:
+      ANSIBLE_LOCAL_TEMP: /tmp/ansible-local
+      ANSIBLE_REMOTE_TEMP: /tmp/ansible-remote
       OPENOBSERVE_URL: http://openobserve:5080
       OPENOBSERVE_USER: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
       OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
       OPENOBSERVE_ORG: ${OPENOBSERVE_ORG:-default}
+      OPENOBSERVE_TRACES_STREAM_NAME: ${OPENOBSERVE_TRACES_STREAM_NAME:-default}
       OPENOBSERVE_QUERY_INTERVAL_MINUTES: ${OPENOBSERVE_QUERY_INTERVAL_MINUTES:-5}
       OPENOBSERVE_QUERY_OVERLAP_SECONDS: ${OPENOBSERVE_QUERY_OVERLAP_SECONDS:-30}
       OLLAMA_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      OLLAMA_REQUEST_TIMEOUT_SECONDS: ${OLLAMA_REQUEST_TIMEOUT_SECONDS:-600}
       ANALYSIS_INTERVAL_SECONDS: ${ANALYSIS_INTERVAL_SECONDS:-300}
       MAX_EVENTS_PER_BATCH: ${MAX_EVENTS_PER_BATCH:-30}
+      ARTIFACTS_DIR: /artifacts/generated/security-ai
       TZ: ${TZ:-Asia/Manila}
     cpus: 0.5
-    mem_limit: 384m
+    mem_limit: 400m
     volumes:
       - security_ai_state:/state
+      - ./artifacts/generated:/artifacts/generated:rw,z
+      - ansible_ai_temp:/tmp/ansible-local
     networks:
       - security
     stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sys; expected='/app/security-ai/worker.py'; sys.exit(0 if os.path.exists('/proc/1/cmdline') and expected.encode() in open('/proc/1/cmdline','rb').read() else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  ansible-ai:
+    image: demo.goharbor.io/home-security-uk/worker-template:1.2
+    pull_policy: never
+    container_name: ansible-ai
+    command: ["/app/ansible-ai/worker.py"]
+    userns_mode: "keep-id:uid=10001,gid=10001"
+    restart: unless-stopped
+    depends_on:
+      - security-ai
+    environment:
+      ANSIBLE_LOCAL_TEMP: /tmp/ansible-local
+      ANSIBLE_REMOTE_TEMP: /tmp/ansible-remote
+      SECURITY_ARTIFACTS_DIR: /artifacts/generated/security-ai
+      ANSIBLE_ARTIFACTS_DIR: /artifacts/generated/ansible-ai
+      PLAYBOOK_INTERVAL_SECONDS: ${PLAYBOOK_INTERVAL_SECONDS:-30}
+      TZ: ${TZ:-Asia/Manila}
+    cpus: 0.25
+    mem_limit: 256m
+    volumes:
+      - ./artifacts/generated:/artifacts/generated:rw,z
+      - ansible_ai_temp:/tmp/ansible-local
+    networks:
+      - security
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sys; expected='/app/ansible-ai/worker.py'; sys.exit(0 if os.path.exists('/proc/1/cmdline') and expected.encode() in open('/proc/1/cmdline','rb').read() else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 networks:
   security:
@@ -114,3 +220,5 @@ volumes:
   fluent_bit_state:
   security_ai_state:
   security_log_archive:
+  ansible_ai_temp:
+  prometheus_data:

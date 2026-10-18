@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+remote_write:
+  - url: http://openobserve:5080/api/OPENOBSERVE_ORG_PLACEHOLDER/prometheus/api/v1/write
+    queue_config:
+      max_samples_per_send: 10000
+    basic_auth:
+      username: ${OPENOBSERVE_USER}
+      password: ${OPENOBSERVE_PASSWORD}

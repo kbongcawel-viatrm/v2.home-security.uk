@@ -201,28 +201,37 @@ class OpenObserveDashboardCreator:
         )
 
     def create_ai_recommendations_dashboard(self) -> bool:
-        """Create AI Recommendations Dashboard showing security analysis results."""
+        """Create a dashboard using fields emitted by security-ai's record schema."""
         panels = [
-            self._create_panel("recommendations_timeline", "AI Analysis Events Timeline", "line",
-                              "SELECT COUNT(*) as count FROM ai_recommendations GROUP BY _timestamp ORDER BY _timestamp DESC",
-                              "ai_recommendations", 0, 0, panel_index=1),
-            self._create_panel("analysis_events_daily", "Analysis Events per Day", "bar",
-                              "SELECT COUNT(*) as count FROM ai_recommendations GROUP BY date_trunc('day', _timestamp) ORDER BY date_trunc('day', _timestamp) DESC LIMIT 30",
-                              "ai_recommendations", 12, 0, panel_index=2),
-            self._create_panel("recommendation_status", "Recommendation Status Distribution", "pie",
-                              "SELECT status, COUNT(*) as count FROM ai_recommendations GROUP BY status",
-                              "ai_recommendations", 24, 0, 12, 8, panel_index=3),
-            self._create_panel("top_findings", "Top Finding Types", "bar",
-                              "SELECT finding_type, COUNT(*) as count FROM ai_recommendations WHERE finding_type IS NOT NULL GROUP BY finding_type ORDER BY count DESC LIMIT 10",
-                              "ai_recommendations", 0, 8, panel_index=4),
-            self._create_panel("recent_recommendations", "Recent AI Recommendations", "table",
-                              "SELECT * FROM ai_recommendations ORDER BY _timestamp DESC LIMIT 50",
-                              "ai_recommendations", 0, 16, 36, 10, panel_index=5)
+            self._create_panel(
+                "ai_analysis_volume", "AI Analyses Over Time", "line",
+                'SELECT histogram(_timestamp, \'1 hour\') AS key, COUNT(*) AS analyses FROM "ai_recommendations" GROUP BY key ORDER BY key',
+                "ai_recommendations", 0, 0, panel_index=1),
+            self._create_panel(
+                "ai_events_per_analysis", "Events Reviewed per Analysis", "bar",
+                'SELECT _timestamp, event_count FROM "ai_recommendations" ORDER BY _timestamp DESC LIMIT 100',
+                "ai_recommendations", 12, 0, panel_index=2),
+            self._create_panel(
+                "ai_severity_distribution", "Analysis Severity", "pie",
+                'SELECT analysis_overall_severity, COUNT(*) AS analyses FROM "ai_recommendations" GROUP BY analysis_overall_severity ORDER BY analyses DESC',
+                "ai_recommendations", 24, 0, 12, 8, panel_index=3),
+            self._create_panel(
+                "ai_confidence_distribution", "Analysis Confidence", "bar",
+                'SELECT analysis_confidence, COUNT(*) AS analyses FROM "ai_recommendations" GROUP BY analysis_confidence ORDER BY analyses DESC',
+                "ai_recommendations", 0, 8, panel_index=4),
+            self._create_panel(
+                "ai_analysis_coverage", "Analyses with Coverage Warnings", "table",
+                'SELECT _timestamp, event_count, coverage_warnings, sources, event_types FROM "ai_recommendations" ORDER BY _timestamp DESC LIMIT 50',
+                "ai_recommendations", 12, 8, 24, 8, panel_index=5),
+            self._create_panel(
+                "ai_recent_analyses", "Recent AI Analysis Summaries", "table",
+                'SELECT _timestamp, model, event_count, analysis_overall_severity, analysis_confidence, analysis_summary, event_refs FROM "ai_recommendations" ORDER BY _timestamp DESC LIMIT 50',
+                "ai_recommendations", 0, 16, 36, 10, panel_index=6)
         ]
         
         return self.create_dashboard(
             "AI Recommendations Dashboard",
-            "View AI-generated security analysis and recommendations from Ollama",
+            "Security-ai analysis volume, reviewed event counts, severity, confidence, query coverage warnings, and recent summaries. Fields reflect the current worker record schema.",
             panels
         )
 

@@ -1,15 +1,5 @@
 #!/usr/bin/env python3
-"""Read recent security logs from OpenObserve, ask Ollama for defensive recommendations
-correlated to CVEs and cyber attacks, and write structured recommendations to OpenObserve.
-
-The worker generates recommendations only; deployment is handled by separate
-host-level Ansible playbooks executed via GitHub Actions on a host-level runner.
-
-Recommendation types:
-1. Suricata rules (with CVE, source-id, community-id metadata) - deployed to
-   /var/lib/suricata/rules/suricata.rules and Suricata is reloaded
-2. Firewall-cmd rules to block IPs or services - applied via firewalld rich rules
-"""
+"""Analyze security telemetry and write review-only host-rule artifacts."""
 import base64
 import json
 import hashlib
@@ -18,11 +8,18 @@ import re
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 from datetime import datetime, timezone
-from ansible_agent import finalize_proposals
+from pathlib import Path
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
+from openobserve import openobserve_init
+
+from artifact_writer import write_artifacts
+from source_catalog import recommend_sources
 
 STATE_FILE = Path("/state/offsets.json")
+ARTIFACTS_DIR = Path(os.getenv("ARTIFACTS_DIR", "/artifacts/generated/security-ai"))
+SESSION_FORENSICS_SKILL = Path(__file__).with_name("session_forensics_skill.md").read_text(encoding="utf-8")
 
 OO_URL = os.getenv("OPENOBSERVE_URL", "http://openobserve:5080").rstrip("/")
 OO_USER = os.environ["OPENOBSERVE_USER"]
@@ -34,6 +31,7 @@ INTERVAL = max(60, int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "300")))
 MAX_EVENTS = max(1, min(100, int(os.getenv("MAX_EVENTS_PER_BATCH", "30"))))
 QUERY_INTERVAL = max(1, int(os.getenv("OPENOBSERVE_QUERY_INTERVAL_MINUTES", "5")))
 OVERLAP_SECONDS = max(0, min(300, int(os.getenv("OPENOBSERVE_QUERY_OVERLAP_SECONDS", "30"))))
+OLLAMA_REQUEST_TIMEOUT = max(60, int(os.getenv("OLLAMA_REQUEST_TIMEOUT_SECONDS", "600")))
 MAX_SEEN_REFS = 5000
 INPUT_STREAMS = tuple(filter(None, os.getenv(
     "OPENOBSERVE_INPUT_STREAMS", "security_logs,firewall_logs,container_logs,kernel_logs"
@@ -278,6 +276,18 @@ def analyze(events):
         "flow, dns, http, tls, ssh, and file events), firewalld logs, kernel messages, "
         "and OS boot/session records. Focus on actionable defensive recommendations "
         "that can be safely deployed to improve detection and response.\n\n"
+
+        "SESSION FORENSICS SKILL:\n"
+        "For events concerning SSH authentication, session open/close, sudo, polkit, "
+        "or interactive logins, apply the following forensic triage guidance. Treat "
+        "records as evidence, not proof; distinguish failed attempts from successful "
+        "access; correlate timestamps, accounts, session identifiers, TTYs, and origins "
+        "when supplied. Do not infer compromise from an active session or unfamiliar "
+        "address alone. State confidence, alternative explanations, and evidence gaps. "
+        "This telemetry-only analysis cannot conclusively detect hijacking inside an "
+        "already-authenticated session. Never claim commands were run or sessions "
+        "inspected: this worker has no host access and performs no investigation on-host.\n"
+        + SESSION_FORENSICS_SKILL + "\n\n"
         
         "CORRELATION REQUIREMENTS:\n"
         "For each significant finding, correlate to known threats:\n"
@@ -301,22 +311,19 @@ def analyze(events):
         "metadata:cve CVE-2024-6387, attack_type brute_force, source_id AI-REC, created_at 2026-01-01;)\n"
         "   - Include fields: rule, cve_ids (array), attack_types (array), mitre_techniques (array), "
         "     source_id, community_id\n\n"
-        "2. FIREWALL BLOCKS (target='firewalld'):\n"
-        "   - block_type: 'ip', 'service', or 'port'\n"
-        "   - For IP blocks: specify blocked_ip and zone (default 'public')\n"
-        "   - For service blocks: specify blocked_service (e.g., 'telnet', 'ftp') and zone\n"
-        "   - For port blocks: specify blocked_port (e.g., '4444/tcp') and zone\n"
-        "   - Never guess zone, interface, or address; if context is insufficient, do not propose\n"
-        "   - Include precise inverse rollback command in rollback_steps\n\n"
-        "3. ANSIBLE PLAYBOOKS (target='ansible'):\n"
-        "   - Small YAML playbook drafts for host-level deployment\n"
-        "   - Target localhost only, connection: local\n"
-        "   - Use only: ansible.builtin.copy, service, command (validated), firewalld, stat, assert, debug\n\n"
-        
+        "2. BLOCKED IP CANDIDATES (target='firewalld'):\n"
+        "   - Propose only observed public IPv4 addresses; never internal, private, reserved, or documentation IPs\n"
+        "   - Only propose narrow source-IP drop drafts for high or critical severity findings\n"
+        "   - Do not propose service removals, port-wide blocks, zone changes, or default-policy changes\n\n"
+        "SURICATA SOURCE IDS:\n"
+        "Do not invent or return arbitrary Suricata source IDs. For evidence-linked phishing, "
+        "spear-phishing, credential-phishing, or brand-impersonation findings, describe the relevant "
+        "attack_type and cite the event_refs. The trusted local catalog maps eligible findings to "
+        "julioliraup/antiphishing. Source enablement is a separate reviewed Ansible draft.\n\n"
         "DEPLOYMENT ARCHITECTURE:\n"
-        "Recommendations are deployed by a host-level GitHub Actions runner (not inside Toolbox) "
-        "using Ansible playbooks with --become flag. The worker only generates recommendations; "
-        "it never executes changes.\n\n"
+        "This worker writes review-only files under /artifacts/generated. It never applies rules, "
+        "executes a firewall script, changes a host, or reloads a service. The separate ansible-ai "
+        "worker drafts a playbook; a human must review and explicitly run it.\n\n"
         
         "SAFETY REQUIREMENTS:\n"
         "- Never recommend disabling protections globally\n"
@@ -337,18 +344,43 @@ def analyze(events):
         "  event_refs, risk, false_positive_risk, validation_steps, rollback_steps, "
         "  cve_ids, attack_types, mitre_techniques\n"
         "  - For suricata: rule, source_id, community_id\n"
-        "  - For firewalld: block_type, blocked_ip/blocked_service/blocked_port, zone\n"
-        "  - For ansible: playbook_yaml\n"
         "- confidence (string): low, medium, or high\n\n"
+        "- session_forensics (object or null): For relevant login/session evidence, "
+        "include assessment (no_suspicious_evidence_observed, suspicious_activity, "
+        "probable_compromise_or_hijack, or insufficient_evidence), confidence, "
+        "event_refs, evidence, alternative_explanations, evidence_gaps, and "
+        "recommended_read_only_follow_up. Use null when unrelated to login sessions.\n\n"
         
         "Events:\n" + json.dumps(events, ensure_ascii=False)[:24000]
     )
-    result = request_json(
-        f"{OLLAMA_URL}/api/generate",
-        {"model": MODEL, "prompt": prompt, "stream": False, "format": "json",
-         "options": {"temperature": 0.2}},
-        timeout=240,
-    )
+    tracer = trace.get_tracer("security-ai.ollama")
+    with tracer.start_as_current_span("ollama.generate") as span:
+        span.set_attribute("gen_ai.system", "ollama")
+        span.set_attribute("gen_ai.request.model", MODEL)
+        span.set_attribute("gen_ai.request.temperature", 0.2)
+        span.set_attribute("gen_ai.operation.name", "generate")
+        span.set_attribute("server.address", OLLAMA_URL.split("://", 1)[-1].split(":", 1)[0])
+        try:
+            result = request_json(
+                f"{OLLAMA_URL}/api/generate",
+                {"model": MODEL, "prompt": prompt, "stream": False, "format": "json",
+                 "options": {"temperature": 0.2}},
+                timeout=OLLAMA_REQUEST_TIMEOUT,
+            )
+        except Exception as exc:
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
+            raise
+        elapsed_ms = result.get("total_duration")
+        if isinstance(elapsed_ms, (int, float)):
+            span.set_attribute("ollama.total_duration_ns", int(elapsed_ms))
+        prompt_tokens = result.get("prompt_eval_count")
+        completion_tokens = result.get("eval_count")
+        if isinstance(prompt_tokens, int):
+            span.set_attribute("gen_ai.usage.input_tokens", prompt_tokens)
+        if isinstance(completion_tokens, int):
+            span.set_attribute("gen_ai.usage.output_tokens", completion_tokens)
+        span.set_attribute("ollama.done", bool(result.get("done", True)))
     raw = result.get("response", "{}")
     try:
         analysis = json.loads(raw)
@@ -356,16 +388,30 @@ def analyze(events):
         analysis = {"summary": raw[:4000], "findings": [], "proposed_changes": [],
                     "confidence": "low", "parse_error": True}
     if isinstance(analysis, dict):
-        raw_proposals = analysis.get("proposed_changes", [])
         analysis["proposed_changes"] = validate_proposals(analysis, events)
-        if isinstance(raw_proposals, list):
-            analysis["proposed_changes"].extend(finalize_proposals(
-                raw_proposals, events, OLLAMA_URL, MODEL, request_json,
-            ))
+        analysis["source_recommendations"] = recommend_sources(analysis, events)
     return analysis
 
 def main():
-    print(f"security-ai worker started; model={MODEL}; interval={INTERVAL}s", flush=True)
+    # Export manual inference spans without changing the existing Ollama HTTP client.
+    auth_token = "Basic " + base64.b64encode(
+        f"{OO_USER}:{OO_PASSWORD}".encode("utf-8")
+    ).decode("ascii")
+    openobserve_init(
+        url=OO_URL,
+        org=OO_ORG,
+        auth_token=auth_token,
+        stream_name=os.getenv("OPENOBSERVE_TRACES_STREAM_NAME", "default"),
+        traces=True,
+        logs=False,
+        metrics=False,
+        resource_attributes={"service.name": "security-ai"},
+    )
+    print(
+        f"security-ai worker started; model={MODEL}; interval={INTERVAL}s; "
+        f"trace_stream={os.getenv('OPENOBSERVE_TRACES_STREAM_NAME', 'default')}",
+        flush=True,
+    )
     while True:
         start = time.time()
         offsets = load_offsets()
@@ -396,9 +442,21 @@ def main():
                         str(e["host_log_path"]) for e in events if e.get("host_log_path")
                     }),
                     "analysis_scope": "Suricata EVE/text, host boot logs, and configured host journal/kernel streams",
-                    "deployment_architecture": "Recommendations are deployed by host-level Ansible playbooks via GitHub Actions (not by this worker)",
+                    "deployment_architecture": "security-ai writes review-only drafts; ansible-ai writes a guarded playbook; neither worker automatically applies host changes",
                     "analysis": analysis,
                 }
+                try:
+                    artifacts = write_artifacts(record, ARTIFACTS_DIR)
+                except OSError as exc:
+                    print(f"unable to write security artifact drafts: {exc}", flush=True)
+                    continue
+                print(
+                    f"wrote draft artifacts severity={artifacts['severity']} "
+                    f"rules={artifacts['artifacts']['suricata']['rule_count']} "
+                    f"candidate_ips={artifacts['artifacts']['firewalld']['ip_count']} "
+                    f"to={ARTIFACTS_DIR}",
+                    flush=True,
+                )
                 ingest_recommendation(record)
                 print(f"submitted AI analysis for {len(events)} events", flush=True)
             else:
