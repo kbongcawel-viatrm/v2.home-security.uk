@@ -1,9 +1,9 @@
 # Home Security Lab — v2.0
-[![Deploy v2.home-security.uk](https://github.com/kbongcawel-viatrm/home-security.uk/actions/workflows/deploy-v2-stack.yml/badge.svg?branch=v2.0&event=push)](https://github.com/kbongcawel-viatrm/home-security.uk/actions/workflows/deploy-v2-stack.yml)
+<img width="870" height="420" alt="Neon Home Security Stack Banner" src="https://github.com/user-attachments/assets/183a0c9f-1fdb-4507-acb1-9d298b8a3b15" />
+
 
 A self-hosted home-network security lab that combines Suricata network intrusion detection, centralized log collection, OpenObserve analytics, and local AI-assisted security analysis with Ollama.
 
-<img width="1793" height="1192" alt="image" src="https://github.com/user-attachments/assets/00752108-5248-4b5c-83d8-ae6db07d5ece" />
 
 
 > **Current status:** Minimum viable product (MVP). The system collects Suricata and host-journal events, stores them in OpenObserve, and periodically asks a local Ollama model to produce structured security findings and recommendations. The AI worker is advisory only; it does not change live rules or execute response actions.
@@ -11,6 +11,8 @@ A self-hosted home-network security lab that combines Suricata network intrusion
 ## Overview
 
 ### Data flow
+
+<img width="1536" height="1024" alt="Network Traffic to AI Response Pipeline" src="https://github.com/user-attachments/assets/617ad243-3681-4ff7-b442-27015e64c764" />
 
 ```mermaid
 flowchart LR
