@@ -36,6 +36,8 @@ services:
     pull_policy: never
     container_name: openobserve-health
     restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 128m
     depends_on:
       openobserve:
         condition: service_started
@@ -64,6 +66,7 @@ services:
     environment:
       OPENOBSERVE_USER: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
       OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
+      OPENOBSERVE_ORG: ${OPENOBSERVE_ORG:-default}
     ports:
       - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090/tcp"
     volumes:

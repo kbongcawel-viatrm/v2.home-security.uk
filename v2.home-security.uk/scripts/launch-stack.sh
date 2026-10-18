@@ -101,11 +101,11 @@ EOF
 show_menu() {
     printf "\n${BOLD}Choose an action:${RESET}\n\n"
     printf "  ${GREEN}1${RESET}) Start \n"
-    printf "  ${RED}6${RESET}) Shutdown \n"
+    printf "  ${RED}2${RESET}) Shutdown \n"
     printf "  ${BLUE}3${RESET}) Restart \n"
     printf "  ${MAGENTA}4${RESET}) Pod Health \n"
     printf "  ${CYAN}5${RESET}) Pod Logs \n"
-    #printf "  ${YELLOW}2${RESET}) Recreate (force) \n"
+    printf "  ${YELLOW}6${RESET}) Memory+Health \n"
     printf "  ${GRAY}0${RESET}) Exit\n\n"
 }
 
@@ -461,6 +461,19 @@ start_stack() {
     wait_for_containers
 }
 
+get_memory() {
+animate_command "HOME-SEC CONTAINER MEMORY USAGE"
+echo
+podman inspect --format '{{.Name}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}|{{.HostConfig.Memory}}' \
+  ollama fluent-bit prometheus openobserve openobserve-health security-ai ansible-ai |
+while IFS='|' read -r name health memory; do
+    mib=$((memory / 1024 / 1024))
+    [[ "$memory" -eq 0 ]] && mib="unlimited"
+    printf '%-25s | %-18s | %s MiB\n' "$name" "$health" "$mib"
+done
+
+}
+
 pause() {
     printf "\nPress Enter to continue..."
     read -r _
@@ -504,10 +517,10 @@ main() {
                 run_compose logs -f
                 pause
                 ;;
-            #6)
-                #start_stack recreate
-                #pause
-                #;;
+            6)
+		get_memory
+                pause
+                ;;
                 
             0)
                 success "Exiting container manager."
