@@ -103,7 +103,7 @@ services:
   fluent-bit:
     image: cr.fluentbit.io/fluent/fluent-bit:${FLUENT_BIT_TAG:-3.2}
     container_name: fluent-bit
-    pull_policy: never 
+    pull_policy: never
     restart: unless-stopped
     depends_on:
       openobserve:
@@ -116,21 +116,21 @@ services:
     cpus: 0.25
     mem_limit: 400m
     volumes:
-      - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,Z
-      - ${SURICATA_LOG_DIR:-/var/log/suricata}:/var/log/suricata:ro,z
-      - ${BOOT_LOG_PATH:-/var/log/boot.log}:/host/boot.log:ro,z
+      - /var/log/suricata:/var/log/suricata:ro
+      - /var/log/audit:/var/log/audit:ro
+      - /var/log/aide:/var/log/aide:ro
       - /run/log/journal:/run/log/journal:ro
+      - /var/log/journal:/var/log/journal:ro
       - /etc/machine-id:/etc/machine-id:ro
       - fluent_bit_state:/fluent-bit/state
-      - security_log_archive:/var/log/security-archive
     networks:
       - security
     command: ["-c", "/fluent-bit/etc/fluent-bit.conf"]
     stop_grace_period: 30s
     healthcheck:
-      test: ["CMD", "/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/fluent-bit.conf", "--dry-run"]
-      interval: 30s
-      timeout: 5s
+      test: ["CMD", "/fluent-bit/bin/fluent-bit", "--dry-run", "-c", "/fluent-bit/etc/fluent-bit.conf"]
+      interval: 60s
+      timeout: 10s
       retries: 3
       start_period: 15s
   
