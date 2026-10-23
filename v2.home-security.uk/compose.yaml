@@ -89,11 +89,11 @@ services:
     container_name: ollama
     restart: unless-stopped
     environment:
-      OLLAMA_CONTEXT_LENGTH: "4096"
+      OLLAMA_CONTEXT_LENGTH: "8192"
       OLLAMA_NUM_PARALLEL: "1"
       OLLAMA_MAX_LOADED_MODELS: "1"
-    cpus: 2.0
-    mem_limit: 2048m
+    cpus: 4.0
+    mem_limit: 4096m
     volumes:
       - ollama_data:/root/.ollama
     networks:

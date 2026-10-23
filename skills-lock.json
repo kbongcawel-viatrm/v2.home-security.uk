@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "fine-tuning-expert": {
+      "source": "jeffallan/claude-skills",
+      "sourceType": "github",
+      "skillPath": "skills/fine-tuning-expert/SKILL.md",
+      "computedHash": "bf9b4119cbe6ebc6ca46997382fcc883cd487019ae7e4456fab95a7e53b64742"
+    },
+    "grepai-ollama-setup": {
+      "source": "yoanbernabeu/grepai-skills",
+      "sourceType": "github",
+      "skillPath": "skills/getting-started/grepai-ollama-setup/SKILL.md",
+      "computedHash": "65a20af4dd38eb85e392615777f0445ea9f82843f094ae263c097f47758abaac"
+    },
+    "huggingface-llm-trainer": {
+      "source": "huggingface/skills",
+      "sourceType": "github",
+      "skillPath": "skills/huggingface-llm-trainer/SKILL.md",
+      "computedHash": "43bf6f95ca2a02882478bb1ba0b915ad2efdb5793e9cb2625fdc14872117a7e5"
+    },
+    "llm-fine-tuning-guide": {
+      "source": "qodex-ai/ai-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/llm-fine-tuning-guide/SKILL.md",
+      "computedHash": "cc781fa6ea4b73bba33db4aaff7075b0f6adb44d099e3942422698cd54396694"
+    },
+    "ollama-optimizer": {
+      "source": "luongnv89/skills",
+      "sourceType": "github",
+      "skillPath": "skills/ollama-optimizer/SKILL.md",
+      "computedHash": "f40e5aa299dbb2f7e872be0ab7838b3138c9a578e849782c793bb6486e6255fb"
+    }
+  }
+}
