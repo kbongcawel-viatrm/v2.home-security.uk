@@ -120,9 +120,8 @@ services:
     mem_limit: 400m
     volumes:
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,Z
-      - ${SURICATA_LOG_DIR:-/var/log/suricata}:/var/log/suricata:ro,z
-      - ${BOOT_LOG_PATH:-/var/log/boot.log}:/host/boot.log:ro,z
-      - /run/log/journal:/run/log/journal:ro,z
+      - ${SURICATA_LOG_DIR:-/var/log/suricata}:/var/log/suricata:ro
+      - ${BOOT_LOG_PATH:-/var/log/boot.log}:/host/boot.log:ro
       - /etc/machine-id:/etc/machine-id:ro
       - fluent_bit_state:/fluent-bit/state
       - security_log_archive:/var/log/security-archive
