@@ -57,6 +57,8 @@ services:
     command:
       - |
         sed "s|OPENOBSERVE_ORG_PLACEHOLDER|$${OPENOBSERVE_ORG}|g" /etc/prometheus/prometheus.yml > /tmp/prometheus.yml
+        sed -i "s|\$\{OPENOBSERVE_USER\}|$${OPENOBSERVE_USER}|g" /tmp/prometheus.yml
+        sed -i "s|\$\{OPENOBSERVE_PASSWORD\}|$${OPENOBSERVE_PASSWORD}|g" /tmp/prometheus.yml
         exec /bin/prometheus --config.file=/tmp/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=$${PROMETHEUS_RETENTION:-15d}
     environment:
       OPENOBSERVE_USER: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}

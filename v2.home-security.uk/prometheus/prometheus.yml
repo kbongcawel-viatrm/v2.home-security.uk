@@ -8,7 +8,7 @@ scrape_configs:
       - targets: ["localhost:9090"]
 
 remote_write:
-  - url: http://openobserve:5080/api/OPENOBSERVE_ORG_PLACEHOLDER/prometheus/api/v1/write
+  - url: http://openobserve:5080/api/${OPENOBSERVE_ORG}/prometheus/api/v1/write
     queue_config:
       max_samples_per_send: 10000
     basic_auth:

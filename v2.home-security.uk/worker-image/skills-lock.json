@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "docker-build-strategies": {
+      "source": "docker/skills",
+      "sourceType": "github",
+      "skillPath": "skills/docker-build-strategies/SKILL.md",
+      "computedHash": "e6a297d613873cf74b030655ee8405ca4434980cfb0dfd412ac5aa4e213d3d5c"
+    },
+    "podman": {
+      "source": "bagelhole/devops-security-agent-skills",
+      "sourceType": "github",
+      "skillPath": "devops/containers/podman/SKILL.md",
+      "computedHash": "630c1d74b1c5d4e588916434b5c4a7fc80e0e5b4405b9b8faf08b7c53f80ee13"
+    }
+  }
+}

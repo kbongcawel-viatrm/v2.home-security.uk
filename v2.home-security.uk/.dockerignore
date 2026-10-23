@@ -1,0 +1,20 @@
+# Version control
+.git/
+
+# Local secrets and environment
+.env
+
+# Generated runtime artifacts (mounted into containers at runtime instead)
+artifacts/generated/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
+
+# Agent/skill tooling metadata (not needed in images)
+.agents/
+skills-lock.json

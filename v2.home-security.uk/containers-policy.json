@@ -30,6 +30,9 @@
       "docker.io/ollama/ollama": [
         { "type": "insecureAcceptAnything" }
       ],
+      "docker.io/prom/prometheus": [
+        { "type": "insecureAcceptAnything" }
+      ],
       "docker.io/library/python": [
         { "type": "insecureAcceptAnything" }
       ],
