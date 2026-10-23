@@ -1,5 +1,10 @@
 name: v2.home-security.uk
 
+# NOTE: depends_on is deliberately not used. podman-compose recreates/restarts
+# dependencies when one service is brought up, so restarting a single container
+# would bounce its dependencies. Services rely on restart: unless-stopped to
+# retry until their upstreams are available. Restart one service with:
+#   podman-compose up -d --no-deps <service>   (or: podman restart <name>)
 services:
   openobserve:
     image: local/openobserve-with-curl:${OPENOBSERVE_IMAGE_TAG:-curl-healthcheck}
@@ -50,15 +55,12 @@ services:
     # bind-mounted prometheus.yml stays readable regardless of host file permissions.
     user: "0:0"
     restart: unless-stopped
-    depends_on:
-      openobserve:
-        condition: service_started
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
-        sed "s|OPENOBSERVE_ORG_PLACEHOLDER|$${OPENOBSERVE_ORG}|g" /etc/prometheus/prometheus.yml > /tmp/prometheus.yml
-        sed -i "s|\$\{OPENOBSERVE_USER\}|$${OPENOBSERVE_USER}|g" /tmp/prometheus.yml
-        sed -i "s|\$\{OPENOBSERVE_PASSWORD\}|$${OPENOBSERVE_PASSWORD}|g" /tmp/prometheus.yml
+        sed 's|[$][{]OPENOBSERVE_ORG[}]|'"$${OPENOBSERVE_ORG}"'|g' /etc/prometheus/prometheus.yml > /tmp/prometheus.yml
+        sed -i 's|[$][{]OPENOBSERVE_USER[}]|'"$${OPENOBSERVE_USER}"'|g' /tmp/prometheus.yml
+        sed -i 's|[$][{]OPENOBSERVE_PASSWORD[}]|'"$${OPENOBSERVE_PASSWORD}"'|g' /tmp/prometheus.yml
         exec /bin/prometheus --config.file=/tmp/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=$${PROMETHEUS_RETENTION:-15d}
     environment:
       OPENOBSERVE_USER: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
@@ -110,9 +112,8 @@ services:
     container_name: fluent-bit
     pull_policy: never 
     restart: unless-stopped
-    depends_on:
-      openobserve:
-        condition: service_started
+    ports:
+       - "127.0.0.1:2020:2020"
     environment:
       OPENOBSERVE_USER: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
       OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
@@ -122,11 +123,14 @@ services:
     mem_limit: 400m
     volumes:
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,Z
-      - ${SURICATA_LOG_DIR:-/var/log/suricata}:/var/log/suricata:ro
+      - /var/log/suricata-export:/var/log/suricata-export:ro
       - ${BOOT_LOG_PATH:-/var/log/boot.log}:/host/boot.log:ro
       - /etc/machine-id:/etc/machine-id:ro
       - fluent_bit_state:/fluent-bit/state
       - security_log_archive:/var/log/security-archive
+      - /run/log/journal:/run/log/journal:ro
+      - /var/log/journal:/var/log/journal:ro
+      - ./fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro,Z
     networks:
       - security
     command: ["-c", "/fluent-bit/etc/fluent-bit.conf"]
@@ -145,14 +149,10 @@ services:
     command: ["/app/security-ai/worker.py"]
     userns_mode: "keep-id:uid=10001,gid=10001"
     restart: unless-stopped
-    depends_on:
-      openobserve:
-        condition: service_started
-      ollama:
-        condition: service_healthy
     environment:
       ANSIBLE_LOCAL_TEMP: /tmp/ansible-local
       ANSIBLE_REMOTE_TEMP: /tmp/ansible-remote
+      OPENOBSERVE_INPUT_STREAMS: "security_logs"
       OPENOBSERVE_URL: http://openobserve:5080
       OPENOBSERVE_USER: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
       OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
@@ -190,8 +190,6 @@ services:
     command: ["/app/ansible-ai/worker.py"]
     userns_mode: "keep-id:uid=10001,gid=10001"
     restart: unless-stopped
-    depends_on:
-      - security-ai
     environment:
       ANSIBLE_LOCAL_TEMP: /tmp/ansible-local
       ANSIBLE_REMOTE_TEMP: /tmp/ansible-remote
