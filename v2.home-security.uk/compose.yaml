@@ -46,6 +46,9 @@ services:
     image: docker.io/prom/prometheus:${PROMETHEUS_TAG:-latest}
     pull_policy: never
     container_name: prometheus
+    # Run as container root: in rootless Podman this maps to the host user, so the
+    # bind-mounted prometheus.yml stays readable regardless of host file permissions.
+    user: "0:0"
     restart: unless-stopped
     depends_on:
       openobserve:
@@ -119,7 +122,7 @@ services:
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,Z
       - ${SURICATA_LOG_DIR:-/var/log/suricata}:/var/log/suricata:ro,z
       - ${BOOT_LOG_PATH:-/var/log/boot.log}:/host/boot.log:ro,z
-      - /run/log/journal:/run/log/journal:ro
+      - /run/log/journal:/run/log/journal:ro,z
       - /etc/machine-id:/etc/machine-id:ro
       - fluent_bit_state:/fluent-bit/state
       - security_log_archive:/var/log/security-archive
