@@ -21,6 +21,21 @@ STATE_FILE = Path("/state/offsets.json")
 ARTIFACTS_DIR = Path(os.getenv("ARTIFACTS_DIR", "/artifacts/generated/security-ai"))
 SESSION_FORENSICS_SKILL = Path(__file__).with_name("session_forensics_skill.md").read_text(encoding="utf-8")
 
+# Processing counters for observability
+COUNTERS = {
+    "cycles_started": 0,
+    "cycles_completed": 0,
+    "cycles_failed": 0,
+    "events_queried": 0,
+    "events_deduplicated": 0,
+    "events_analyzed": 0,
+    "events_rejected": 0,
+    "recommendations_submitted": 0,
+    "recommendations_failed": 0,
+    "ollama_requests": 0,
+    "ollama_failures": 0,
+}
+
 OO_URL = os.getenv("OPENOBSERVE_URL", "http://openobserve:5080").rstrip("/")
 OO_USER = os.environ["OPENOBSERVE_USER"]
 OO_PASSWORD = os.environ["OPENOBSERVE_PASSWORD"]
@@ -33,8 +48,10 @@ QUERY_INTERVAL = max(1, int(os.getenv("OPENOBSERVE_QUERY_INTERVAL_MINUTES", "5")
 OVERLAP_SECONDS = max(0, min(300, int(os.getenv("OPENOBSERVE_QUERY_OVERLAP_SECONDS", "30"))))
 OLLAMA_REQUEST_TIMEOUT = max(60, int(os.getenv("OLLAMA_REQUEST_TIMEOUT_SECONDS", "600")))
 MAX_SEEN_REFS = 5000
+# Note: Fluent Bit sends all log types to security_logs stream via _multi endpoint
+# If Fluent Bit is configured to use separate streams, update this list accordingly
 INPUT_STREAMS = tuple(filter(None, os.getenv(
-    "OPENOBSERVE_INPUT_STREAMS", "security_logs,firewall_logs,container_logs,kernel_logs"
+    "OPENOBSERVE_INPUT_STREAMS", "security_logs"
 ).split(",")))
 
 def request_json(url, payload=None, auth=False, timeout=180):
@@ -105,15 +122,21 @@ def query_new_events(offsets):
         truncated = len(stream_hits) > per_stream_limit
         if truncated:
             coverage.append({"stream": stream, "warning": "per_stream_limit_reached",
-                             "returned_at_least": len(stream_hits)})
+                             "returned_at_least": len(stream_hits),
+                             "action": "cursor_not_advanced_to_prevent_event_loss"})
             stream_hits = stream_hits[:per_stream_limit]
+            # Do NOT advance cursor when truncated - events may be lost
+            # The next cycle will retry with the same start time
+            print(f"Stream {stream} returned {len(stream_hits)+1} events (limit {per_stream_limit}), cursor not advanced", flush=True)
+        else:
+            # Only advance cursor when we're confident we got all events
+            offsets.setdefault("stream_cursors", {})[stream] = end_iso
         for hit in stream_hits:
             ref = event_ref(stream, hit)
             if ref not in seen:
                 hit["event_ref"] = ref
                 hit["_evidence_stream"] = stream
                 new_hits.append(hit)
-        offsets.setdefault("stream_cursors", {})[stream] = end_iso
     new_hits.sort(key=lambda hit: str(hit.get("_timestamp", "")))
     selected = new_hits[-MAX_EVENTS:]
     if len(new_hits) > MAX_EVENTS:
@@ -354,6 +377,7 @@ def analyze(events):
         "Events:\n" + json.dumps(events, ensure_ascii=False)[:24000]
     )
     tracer = trace.get_tracer("security-ai.ollama")
+    COUNTERS["ollama_requests"] += 1
     with tracer.start_as_current_span("ollama.generate") as span:
         span.set_attribute("gen_ai.system", "ollama")
         span.set_attribute("gen_ai.request.model", MODEL)
@@ -368,6 +392,7 @@ def analyze(events):
                 timeout=OLLAMA_REQUEST_TIMEOUT,
             )
         except Exception as exc:
+            COUNTERS["ollama_failures"] += 1
             span.record_exception(exc)
             span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
             raise
@@ -414,14 +439,17 @@ def main():
     )
     while True:
         start = time.time()
+        COUNTERS["cycles_started"] += 1
         offsets = load_offsets()
         try:
             events, coverage = query_new_events(offsets)
+            COUNTERS["events_queried"] += len(events)
             if events or coverage:
                 analysis = analyze(events) if events else {
                     "summary": "No unseen events were available, but one or more input streams reached a query limit.",
                     "findings": [], "proposed_changes": [], "confidence": "low",
                 }
+                COUNTERS["events_analyzed"] += len(events)
                 record = {
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "model": MODEL,
@@ -444,10 +472,12 @@ def main():
                     "analysis_scope": "Suricata EVE/text, host boot logs, and configured host journal/kernel streams",
                     "deployment_architecture": "security-ai writes review-only drafts; ansible-ai writes a guarded playbook; neither worker automatically applies host changes",
                     "analysis": analysis,
+                    "processing_counters": COUNTERS.copy(),
                 }
                 try:
                     artifacts = write_artifacts(record, ARTIFACTS_DIR)
                 except OSError as exc:
+                    COUNTERS["cycles_failed"] += 1
                     print(f"unable to write security artifact drafts: {exc}", flush=True)
                     continue
                 print(
@@ -457,12 +487,20 @@ def main():
                     f"to={ARTIFACTS_DIR}",
                     flush=True,
                 )
-                ingest_recommendation(record)
+                try:
+                    ingest_recommendation(record)
+                    COUNTERS["recommendations_submitted"] += 1
+                except Exception as exc:
+                    COUNTERS["recommendations_failed"] += 1
+                    print(f"failed to submit AI analysis: {exc}", flush=True)
                 print(f"submitted AI analysis for {len(events)} events", flush=True)
             else:
                 print("no new security logs to analyze", flush=True)
             save_offsets(offsets)
+            COUNTERS["cycles_completed"] += 1
+            print(f"cycle counters: {COUNTERS}", flush=True)
         except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+            COUNTERS["cycles_failed"] += 1
             print(f"analysis cycle failed: {exc}", flush=True)
         elapsed = time.time() - start
         time.sleep(max(1, INTERVAL - elapsed))

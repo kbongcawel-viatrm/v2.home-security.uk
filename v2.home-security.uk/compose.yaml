@@ -21,13 +21,13 @@ services:
     environment:
       ZO_ROOT_USER_EMAIL: ${OPENOBSERVE_USER:?Set OPENOBSERVE_USER in .env}
       ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
-      ZO_SMTP_ENABLED: "true"
-      ZO_SMTP_HOST: smtp.gmail.com
-      ZO_SMTP_PORT: "587"
-      ZO_SMTP_USER_NAME: dummykevin08@gmail.com
-      ZO_SMTP_PASSWORD: "xcsp ixyq wbam lyex"
-      ZO_SMTP_FROM_EMAIL: dummykevin08@gmail.com
-      ZO_SMTP_ENCRYPTION: starttls
+      ZO_SMTP_ENABLED: ${ZO_SMTP_ENABLED:-false}
+      ZO_SMTP_HOST: ${ZO_SMTP_HOST:-}
+      ZO_SMTP_PORT: ${ZO_SMTP_PORT:-587}
+      ZO_SMTP_USER_NAME: ${ZO_SMTP_USER_NAME:-}
+      ZO_SMTP_PASSWORD: ${ZO_SMTP_PASSWORD:-}
+      ZO_SMTP_FROM_EMAIL: ${ZO_SMTP_FROM_EMAIL:-}
+      ZO_SMTP_ENCRYPTION: ${ZO_SMTP_ENCRYPTION:-starttls}
       ZO_DATA_DIR: /data
       ZO_LOCAL_MODE: "true"
       ZO_MEMORY_CACHE_MAX_SIZE: "128"
@@ -101,11 +101,13 @@ services:
     # Deliberately not published to the host; internal services use ollama:11434.
     stop_grace_period: 30s
     healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
+      # Keep liveness inexpensive: inference is validated by security-ai and the
+      # explicit end-to-end smoke test, not every 30-second health probe.
+      test: ["CMD-SHELL", "/bin/ollama list | grep -Fq '${OLLAMA_MODEL:-qwen2.5:3b}'"]
+      interval: 30s
+      timeout: 60s
+      retries: 3
+      start_period: 60s
 
   fluent-bit:
     image: cr.fluentbit.io/fluent/fluent-bit:${FLUENT_BIT_TAG:-3.2}
@@ -130,6 +132,8 @@ services:
       - security_log_archive:/var/log/security-archive
       - /run/log/journal:/run/log/journal:ro
       - /var/log/journal:/var/log/journal:ro
+      - /var/log/audit:/var/log/audit:ro
+      - /var/log/aide:/var/log/aide:ro
       - ./fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro,Z
     networks:
       - security
