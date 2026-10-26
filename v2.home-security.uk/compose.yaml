@@ -73,8 +73,8 @@ services:
       - prometheus_data:/prometheus
     networks:
       - security
-    cpus: 0.5
-    mem_limit: 512m
+    cpus: 0.25
+    mem_limit: 256m
     stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "promtool", "query", "instant", "http://localhost:9090", "up"]
@@ -92,7 +92,7 @@ services:
       OLLAMA_CONTEXT_LENGTH: "8192"
       OLLAMA_NUM_PARALLEL: "1"
       OLLAMA_MAX_LOADED_MODELS: "1"
-    cpus: 3.0
+    cpus: 2.0
     mem_limit: 2048m
     volumes:
       - ollama_data:/root/.ollama
@@ -121,7 +121,7 @@ services:
       OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
       OPENOBSERVE_ORG: ${OPENOBSERVE_ORG:-default}
       TZ: ${TZ:-Asia/Manila}
-    cpus: 0.5
+    cpus: 0.25
     mem_limit: 200m
     volumes:
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,Z
@@ -171,8 +171,8 @@ services:
       MAX_EVENTS_PER_BATCH: ${MAX_EVENTS_PER_BATCH:-30}
       ARTIFACTS_DIR: /artifacts/generated/security-ai
       TZ: ${TZ:-Asia/Manila}
-    cpus: 0.5
-    mem_limit: 400m
+    cpus: 0.25
+    mem_limit: 256m
     volumes:
       - security_ai_state:/state
       - ./artifacts/generated:/artifacts/generated:rw,z
