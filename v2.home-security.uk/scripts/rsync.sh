@@ -26,17 +26,12 @@ rsync -a "$SOURCE/" "$DEST/"
 rsync -a "$SOURCE2/" "$DEST/"
 rsync -a "$SOURCE3/" "$DEST/"
 
-# Watch for changes recursively and synchronize after events
-#while inotifywait -q -r \
-#    -e close_write,create,delete,move \
-#    "$SOURCE"; do
-#    rsync -a "$SOURCE/" "$DEST/"
-#done
 while true; do
     rsync -a "$SOURCE/" "$DEST/"
     rsync -a "$SOURCE2/" "$DEST/"
     rsync -a "$SOURCE3/" "$DEST/"
-    chown suricata:wheel -R $DEST/
+    chown openobserve-agent:openobserve-agent -R $DEST/
     chmod 777 -R $DEST/
     sleep 5
 done
+

@@ -7,6 +7,7 @@ set -uo pipefail
 COMPOSE_FILE="${COMPOSE_FILE:-compose.yaml}"
 APP_NAME="Home Security Stack"
 TIMEOUT=120
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 # ANSI colors
 RESET='\033[0m'
@@ -106,7 +107,26 @@ show_menu() {
     printf "  ${MAGENTA}4${RESET}) Pod Health \n"
     printf "  ${CYAN}5${RESET}) Pod Logs \n"
     printf "  ${YELLOW}6${RESET}) Memory+Health \n"
+    printf "  ${GREEN}7${RESET}) Init sync and watch sync and podman logs \n"
     printf "  ${GRAY}0${RESET}) Exit\n\n"
+}
+
+init_sync_watch_logs() {
+    if ! command -v ptyxis >/dev/null 2>&1; then
+        error "Missing terminal launcher: ptyxis"
+        return 1
+    fi
+
+    log "Opening separate Ptyxis terminals for sync, log watch, and Podman resources."
+
+    # Each Ptyxis invocation opens its own window. run0 performs the requested
+    # privilege transition inside that window, leaving an interactive shell after.
+    ptyxis --new-window --working-directory=/usr/local/bin -- \
+        bash -c 'run0 ./rsync.sh; exec bash' &
+    ptyxis --new-window --working-directory=/usr/local/bin -- \
+        bash -c 'run0 "$1"; exec bash' bash "$SCRIPT_DIR/watch-log.sh" &
+    ptyxis --new-window --working-directory="$SCRIPT_DIR" -- \
+        bash -c 'run0 --user=kb ./watch-pods-resources.sh; exec bash' &
 }
 
 run_compose() {
@@ -477,7 +497,7 @@ main() {
         show_banner
         show_menu
 
-        read -r -p "$(printf "${CYAN}Select option [0-6]: ${RESET}")" choice
+        read -r -p "$(printf "${CYAN}Select option [0-7]: ${RESET}")" choice
 
         case "$choice" in
             1)
@@ -508,6 +528,10 @@ main() {
                 ;;
             6)
 		get_memory
+                pause
+                ;;
+            7)
+                init_sync_watch_logs
                 pause
                 ;;
                 
