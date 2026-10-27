@@ -31,9 +31,9 @@ services:
       ZO_DATA_DIR: /data
       ZO_LOCAL_MODE: "true"
       ZO_MEMORY_CACHE_MAX_SIZE: "128"
-      ZO_MEMORY_CACHE_DATAFUSION_MAX_SIZE: "256"
+      ZO_MEMORY_CACHE_DATAFUSION_MAX_SIZE: "512"
       TZ: ${TZ:-Asia/Manila}
-    cpus: 1.00
+    cpus: 1.50
     mem_limit: 2048m
     volumes:
       - openobserve_data:/data
@@ -121,8 +121,8 @@ services:
       OPENOBSERVE_PASSWORD: ${OPENOBSERVE_PASSWORD:?Set OPENOBSERVE_PASSWORD in .env}
       OPENOBSERVE_ORG: ${OPENOBSERVE_ORG:-default}
       TZ: ${TZ:-Asia/Manila}
-    cpus: 0.20
-    mem_limit: 128m
+    cpus: 0.25
+    mem_limit: 256m
     volumes:
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,Z
       - /var/log/suricata-export:/var/log/suricata-export:ro
