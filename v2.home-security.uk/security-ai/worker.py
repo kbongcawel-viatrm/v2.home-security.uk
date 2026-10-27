@@ -98,7 +98,13 @@ def query_new_events(offsets):
             start = max(0, start - OVERLAP_SECONDS)
         else:
             start = now.timestamp() - QUERY_INTERVAL * 60
-        sql = f'SELECT * FROM "{stream}" ORDER BY _timestamp DESC'
+        # Keep the sort bounded in OpenObserve/DataFusion. The API response
+        # size alone is applied too late to prevent SELECT * + ORDER BY from
+        # scanning and sorting an entire busy stream in memory.
+        sql = (
+            f'SELECT * FROM "{stream}" ORDER BY _timestamp DESC '
+            f'LIMIT {per_stream_limit + 1}'
+        )
         try:
             result = request_json(
                 f"{OO_URL}/api/{OO_ORG}/_search",
@@ -296,8 +302,14 @@ def analyze(events):
     prompt = (
         "You are a defensive security analyst reviewing home-lab security alerts. "
         "The input can combine structured Suricata EVE JSON events (including alert, "
-        "flow, dns, http, tls, ssh, and file events), firewalld logs, kernel messages, "
-        "and OS boot/session records. Focus on actionable defensive recommendations "
+        "flow, dns, http, tls, ssh, and file events), Suricata fast.log text alerts, "
+        "Suricata stats text logs, ClamAV scan summaries (clamav-scan.log and "
+        "clamav-secureblue-scan.log), auditd records, AIDE integrity reports, "
+        "kernel messages, and OS boot/session records. "
+        "Pay special attention to ClamAV scan results: report infected files, "
+        "quarantine actions, scan failures, and any FOUND detections as high-priority "
+        "findings. Correlate ClamAV detections with Suricata alerts from the same "
+        "time window when possible. Focus on actionable defensive recommendations "
         "that can be safely deployed to improve detection and response.\n\n"
 
         "SESSION FORENSICS SKILL:\n"
@@ -469,7 +481,11 @@ def main():
                     "host_log_paths": sorted({
                         str(e["host_log_path"]) for e in events if e.get("host_log_path")
                     }),
-                    "analysis_scope": "Suricata EVE/text, host boot logs, and configured host journal/kernel streams",
+                    "clamav_log_paths": sorted({
+                        str(e["source_file"]) for e in events
+                        if e.get("source") == "clamav" and e.get("source_file")
+                    }),
+                    "analysis_scope": "Suricata EVE/fast/stats/logs, ClamAV scan summaries and secureblue scan logs, auditd records, AIDE integrity reports, host boot logs, and configured host journal/kernel streams",
                     "deployment_architecture": "security-ai writes review-only drafts; ansible-ai writes a guarded playbook; neither worker automatically applies host changes",
                     "analysis": analysis,
                     "processing_counters": COUNTERS.copy(),
