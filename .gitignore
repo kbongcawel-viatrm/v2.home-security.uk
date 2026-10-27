@@ -1,13 +1,85 @@
+# ============================================
+# Workspace-level ignores
+# ============================================
 todo.md
 *.sw*
-.env
-.env.vault
 *.local
-__pycache__/
-*.pyc
 downloads/
 downloads/*
 wsl/
 wsl/*
 client.keys
 .buildx-cache/
+
+# ============================================
+# Environment and secrets
+# ============================================
+.env
+.env.vault
+.env.local
+.env.*.local
+
+# ============================================
+# Python bytecode and caches
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ============================================
+# Virtual environments
+# ============================================
+.venv/
+venv/
+env/
+
+# ============================================
+# Build artifacts
+# ============================================
+*.egg-info/
+dist/
+build/
+wheels/
+
+# ============================================
+# IDE and editor files
+# ============================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ============================================
+# OS files
+# ============================================
+.DS_Store
+Thumbs.db
+
+# ============================================
+# Logs
+# ============================================
+*.log
+logs/
+
+# ============================================
+# Temporary files
+# ============================================
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig
+
+# ============================================
+# Project-specific (v2.home-security.uk)
+# ============================================
+v2.home-security.uk/artifacts/generated/*
+v2.home-security.uk/ansible-ai/state/
