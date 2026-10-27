@@ -33,8 +33,9 @@ services:
       ZO_MEMORY_CACHE_MAX_SIZE: "128"
       ZO_MEMORY_CACHE_DATAFUSION_MAX_SIZE: "512"
       TZ: ${TZ:-Asia/Manila}
-    cpus: 1.50
-    mem_limit: 2048m
+    cpus: 0.50
+    mem_limit: 1024m
+    mem_reservation: 512m
     volumes:
       - openobserve_data:/data
     networks:
@@ -92,8 +93,9 @@ services:
       OLLAMA_CONTEXT_LENGTH: "8192"
       OLLAMA_NUM_PARALLEL: "1"
       OLLAMA_MAX_LOADED_MODELS: "1"
-    cpus: 1.50
-    mem_limit: 2048m
+    cpus: 0.75
+    mem_limit: 2560m
+    mem_reservation: 2048m
     volumes:
       - ollama_data:/root/.ollama
     networks:
