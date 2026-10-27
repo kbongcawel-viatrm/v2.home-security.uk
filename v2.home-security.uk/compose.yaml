@@ -34,7 +34,7 @@ services:
       ZO_MEMORY_CACHE_DATAFUSION_MAX_SIZE: "512"
       TZ: ${TZ:-Asia/Manila}
     cpus: 0.50
-    mem_limit: 2048m
+    mem_limit: 1600m
     mem_reservation: 1536m
     volumes:
       - openobserve_data:/data
@@ -94,7 +94,7 @@ services:
       OLLAMA_NUM_PARALLEL: "1"
       OLLAMA_MAX_LOADED_MODELS: "1"
     cpus: 0.75
-    mem_limit: 2560m
+    mem_limit: 2200m
     mem_reservation: 2048m
     volumes:
       - ollama_data:/root/.ollama
@@ -124,7 +124,7 @@ services:
       OPENOBSERVE_ORG: ${OPENOBSERVE_ORG:-default}
       TZ: ${TZ:-Asia/Manila}
     cpus: 0.25
-    mem_limit: 256m
+    mem_limit: 128m
     volumes:
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro,Z
       - /var/log/suricata-export:/var/log/suricata-export:ro
