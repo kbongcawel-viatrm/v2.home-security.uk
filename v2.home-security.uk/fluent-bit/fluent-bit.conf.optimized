@@ -1,0 +1,446 @@
+[SERVICE]
+    Flush                     5
+    Daemon                    Off
+    Log_Level                 info
+    Parsers_File              parsers.conf
+    storage.path              /fluent-bit/state
+    storage.sync              normal
+    storage.checksum          off
+    storage.backlog.mem_limit 10M
+    storage.metrics           On
+    HTTP_Server               On
+    HTTP_Listen               0.0.0.0
+    HTTP_Port                 2020
+
+# --------------------------------------------------
+# SYSTEMD JOURNAL - KERNEL MESSAGES
+# Stream: host_logs
+# Priority: Low (noise reduction recommended)
+# --------------------------------------------------
+[INPUT]
+    Name              systemd
+    Tag               host.kernel
+    DB                /fluent-bit/state/kernel.db
+    Systemd_Filter    _TRANSPORT=kernel
+    Read_From_Tail    On
+    storage.type      filesystem
+
+[FILTER]
+    Name              modify
+    Match             host.kernel
+    Add               source kernel
+    Add               stream host_logs
+
+[FILTER]
+    Name              record_modifier
+    Match             host.kernel
+    Record            _stream host_logs
+
+# --------------------------------------------------
+# SYSTEMD JOURNAL - BOOT LOG
+# Stream: host_logs
+# Priority: Low
+# --------------------------------------------------
+[INPUT]
+    Name              systemd
+    Tag               host.boot
+    DB                /fluent-bit/state/boot.db
+    Systemd_Filter    _SYSTEMD_UNIT=systemd-journald.service
+    Read_From_Tail    On
+    storage.type      filesystem
+
+[FILTER]
+    Name              modify
+    Match             host.boot
+    Add               source boot
+    Add               stream host_logs
+
+[FILTER]
+    Name              record_modifier
+    Match             host.boot
+    Record            _stream host_logs
+
+# --------------------------------------------------
+# SYSTEMD JOURNAL - GENERAL SYSTEM LOGS
+# Stream: host_logs
+# Priority: Low
+# Note: Consider adding Systemd_Filter to reduce noise
+# --------------------------------------------------
+[INPUT]
+    Name              systemd
+    Tag               host.journal
+    DB                /fluent-bit/state/systemd.db
+    Read_From_Tail    On
+    storage.type      filesystem
+
+[FILTER]
+    Name              modify
+    Match             host.journal
+    Add               source systemd-journal
+    Add               stream host_logs
+
+[FILTER]
+    Name              record_modifier
+    Match             host.journal
+    Record            _stream host_logs
+
+# --------------------------------------------------
+# SURICATA EVE JSON - ALERTS ONLY
+# Stream: security_alerts
+# Priority: High (real-time alerts)
+# Filter: Exclude stats events (they're in stats.log)
+# Field reduction: Keep only alert-relevant fields
+# --------------------------------------------------
+[INPUT]
+    Name              tail
+    Tag               suricata.eve
+    Path              /var/log/suricata-export/eve.json
+    Parser            json
+    DB                /fluent-bit/state/suricata-eve.db
+    Read_from_Head    On
+    Refresh_Interval  30
+    Rotate_Wait       30
+    Skip_Long_Lines   On
+    Mem_Buf_Limit     10MB
+    Path_Key          source_file
+    storage.type      filesystem
+
+[FILTER]
+    Name              grep
+    Match             suricata.eve
+    Exclude           event_type stats
+
+[FILTER]
+    Name              modify
+    Match             suricata.eve
+    Add               source suricata
+    Add               stream security_alerts
+
+[FILTER]
+    Name              record_modifier
+    Match             suricata.eve
+    Record            _stream security_alerts
+
+# Field reduction: Keep only security-relevant fields
+[FILTER]
+    Name              record_modifier
+    Match             suricata.eve
+    Record            timestamp ${timestamp}
+    Record            event_type ${event_type}
+    Record            src_ip ${src_ip}
+    Record            src_port ${src_port}
+    Record            dest_ip ${dest_ip}
+    Record            dest_port ${dest_port}
+    Record            proto ${proto}
+    Record            alert ${alert}
+    Record            dns ${dns}
+    Record            http ${http}
+    Record            tls ${tls}
+    Record            ssh ${ssh}
+    Record            source_file ${source_file}
+
+# --------------------------------------------------
+# SURICATA LOG - DEBUG LOGS
+# Stream: security_metrics
+# Priority: Low
+# Sampling: 1:10 (high volume, periodic)
+# --------------------------------------------------
+[INPUT]
+    Name              tail
+    Tag               suricata.log
+    Path              /var/log/suricata-export/suricata.log
+    Parser            json
+    DB                /fluent-bit/state/suricata-log.db
+    Read_from_Head    On
+    Refresh_Interval  30
+    Rotate_Wait       30
+    Skip_Long_Lines   On
+    Mem_Buf_Limit     10MB
+    Path_Key          source_file
+    storage.type      filesystem
+
+[FILTER]
+    Name              sampling
+    Match             suricata.log
+    Rate              10
+
+[FILTER]
+    Name              modify
+    Match             suricata.log
+    Add               source suricata
+    Add               stream security_metrics
+
+[FILTER]
+    Name              record_modifier
+    Match             suricata.log
+    Record            _stream security_metrics
+
+# --------------------------------------------------
+# SURICATA STATS - METRICS
+# Stream: security_metrics
+# Priority: Low
+# Sampling: 1:10 (periodic metrics)
+# --------------------------------------------------
+[INPUT]
+    Name              tail
+    Tag               suricata.stats
+    Path              /var/log/suricata-export/stats.log
+    Parser            json
+    DB                /fluent-bit/state/suricata-stats.db
+    Read_from_Head    On
+    Refresh_Interval  60
+    Rotate_Wait       30
+    Skip_Long_Lines   On
+    Mem_Buf_Limit     10MB
+    Path_Key          source_file
+    storage.type      filesystem
+
+[FILTER]
+    Name              sampling
+    Match             suricata.stats
+    Rate              10
+
+[FILTER]
+    Name              modify
+    Match             suricata.stats
+    Add               source suricata
+    Add               stream security_metrics
+
+[FILTER]
+    Name              record_modifier
+    Match             suricata.stats
+    Record            _stream security_metrics
+
+# --------------------------------------------------
+# SURICATA FAST ALERTS
+# Stream: security_alerts
+# Priority: High
+# --------------------------------------------------
+[INPUT]
+    Name              tail
+    Tag               suricata.fast
+    Path              /var/log/suricata-export/fast.log
+    DB                /fluent-bit/state/suricata-fast.db
+    Read_from_Head    On
+    Refresh_Interval  30
+    Rotate_Wait       30
+    Skip_Long_Lines   On
+    Mem_Buf_Limit     10MB
+    Path_Key          source_file
+    storage.type      filesystem
+
+[FILTER]
+    Name              modify
+    Match             suricata.fast
+    Add               source suricata
+    Add               event_type alert
+    Add               stream security_alerts
+
+[FILTER]
+    Name              record_modifier
+    Match             suricata.fast
+    Record            _stream security_alerts
+
+# --------------------------------------------------
+# CLAMAV SCAN LOGS
+# Stream: security_alerts
+# Priority: High (malware detection)
+# --------------------------------------------------
+[INPUT]
+    Name              tail
+    Tag               security.clamav.scan
+    Path              /var/log/suricata-export/clamav-scan.log
+    DB                /fluent-bit/state/clamav-scan.db
+    Read_from_Head    On
+    Refresh_Interval  60
+    Rotate_Wait       30
+    Skip_Long_Lines   On
+    Mem_Buf_Limit     5MB
+    Path_Key          source_file
+    storage.type      filesystem
+
+[FILTER]
+    Name              modify
+    Match             security.clamav.scan
+    Add               source clamav
+    Add               event_type scan_summary
+    Add               stream security_alerts
+
+[FILTER]
+    Name              record_modifier
+    Match             security.clamav.scan
+    Record            _stream security_alerts
+
+[INPUT]
+    Name              tail
+    Tag               security.clamav.secureblue-scan
+    Path              /var/log/suricata-export/clamav-secureblue-scan.log
+    DB                /fluent-bit/state/clamav-secureblue-scan.db
+    Read_from_Head    On
+    Refresh_Interval  60
+    Rotate_Wait       30
+    Skip_Long_Lines   On
+    Mem_Buf_Limit     5MB
+    Path_Key          source_file
+    storage.type      filesystem
+
+[FILTER]
+    Name              modify
+    Match             security.clamav.secureblue-scan
+    Add               source clamav
+    Add               event_type scan
+    Add               stream security_alerts
+
+[FILTER]
+    Name              record_modifier
+    Match             security.clamav.secureblue-scan
+    Record            _stream security_alerts
+
+# --------------------------------------------------
+# AUDITD
+# Stream: audit_logs
+# Priority: Medium (audit trail)
+# Sampling: 1:5 (high volume)
+# --------------------------------------------------
+[INPUT]
+    Name              tail
+    Tag               security.auditd
+    Path              /var/log/audit/audit.log
+    DB                /fluent-bit/state/auditd.db
+    Read_from_Head    Off
+    Refresh_Interval  30
+    Rotate_Wait       30
+    Skip_Long_Lines   On
+    Mem_Buf_Limit     10MB
+    Path_Key          source_file
+    storage.type      filesystem
+
+[FILTER]
+    Name              sampling
+    Match             security.auditd
+    Rate              5
+
+[FILTER]
+    Name              modify
+    Match             security.auditd
+    Add               source auditd
+    Add               stream audit_logs
+
+[FILTER]
+    Name              record_modifier
+    Match             security.auditd
+    Record            _stream audit_logs
+
+# --------------------------------------------------
+# AIDE INTEGRITY REPORTS
+# Stream: security_alerts
+# Priority: High (integrity violations)
+# --------------------------------------------------
+[INPUT]
+    Name              tail
+    Tag               security.aide
+    Path              /var/log/aide/aide.log
+    DB                /fluent-bit/state/aide.db
+    Read_from_Head    Off
+    Refresh_Interval  30
+    Rotate_Wait       30
+    Skip_Long_Lines   On
+    Mem_Buf_Limit     5MB
+    Path_Key          source_file
+    storage.type      filesystem
+
+[FILTER]
+    Name              modify
+    Match             security.aide
+    Add               source aide
+    Add               stream security_alerts
+
+[FILTER]
+    Name              record_modifier
+    Match             security.aide
+    Record            _stream security_alerts
+
+# --------------------------------------------------
+# STREAM ROUTING OUTPUTS
+# Route logs to separate OpenObserve streams based on _stream field
+# --------------------------------------------------
+
+# Security Alerts Stream (High Priority)
+[OUTPUT]
+    Name              http
+    Match             _stream security_alerts
+    Host              openobserve
+    Port              5080
+    URI               /api/${OPENOBSERVE_ORG}/security_alerts/_json
+    HTTP_User         ${OPENOBSERVE_USER}
+    HTTP_Passwd       ${OPENOBSERVE_PASSWORD}
+    Format            json
+    Json_date_key     _timestamp
+    Json_date_format  iso8601
+    tls               Off
+    Retry_Limit       False
+    compress         gzip
+
+# Security Metrics Stream (Low Priority)
+[OUTPUT]
+    Name              http
+    Match             _stream security_metrics
+    Host              openobserve
+    Port              5080
+    URI               /api/${OPENOBSERVE_ORG}/security_metrics/_json
+    HTTP_User         ${OPENOBSERVE_USER}
+    HTTP_Passwd       ${OPENOBSERVE_PASSWORD}
+    Format            json
+    Json_date_key     _timestamp
+    Json_date_format  iso8601
+    tls               Off
+    Retry_Limit       False
+    compress         gzip
+
+# Host Logs Stream (Low Priority)
+[OUTPUT]
+    Name              http
+    Match             _stream host_logs
+    Host              openobserve
+    Port              5080
+    URI               /api/${OPENOBSERVE_ORG}/host_logs/_json
+    HTTP_User         ${OPENOBSERVE_USER}
+    HTTP_Passwd       ${OPENOBSERVE_PASSWORD}
+    Format            json
+    Json_date_key     _timestamp
+    Json_date_format  iso8601
+    tls               Off
+    Retry_Limit       False
+    compress         gzip
+
+# Audit Logs Stream (Medium Priority)
+[OUTPUT]
+    Name              http
+    Match             _stream audit_logs
+    Host              openobserve
+    Port              5080
+    URI               /api/${OPENOBSERVE_ORG}/audit_logs/_json
+    HTTP_User         ${OPENOBSERVE_USER}
+    HTTP_Passwd       ${OPENOBSERVE_PASSWORD}
+    Format            json
+    Json_date_key     _timestamp
+    Json_date_format  iso8601
+    tls               Off
+    Retry_Limit       False
+    compress         gzip
+
+# Fallback for any unmatched logs
+[OUTPUT]
+    Name              http
+    Match             *
+    Host              openobserve
+    Port              5080
+    URI               /api/${OPENOBSERVE_ORG}/security_logs/_json
+    HTTP_User         ${OPENOBSERVE_USER}
+    HTTP_Passwd       ${OPENOBSERVE_PASSWORD}
+    Format            json
+    Json_date_key     _timestamp
+    Json_date_format  iso8601
+    tls               Off
+    Retry_Limit       False
+    compress         gzip

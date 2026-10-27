@@ -34,7 +34,7 @@ services:
       ZO_MEMORY_CACHE_DATAFUSION_MAX_SIZE: "512"
       TZ: ${TZ:-Asia/Manila}
     cpus: 0.50
-    mem_limit: 1600m
+    mem_limit: 2048m
     mem_reservation: 1536m
     volumes:
       - openobserve_data:/data
