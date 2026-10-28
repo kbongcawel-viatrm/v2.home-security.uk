@@ -1,0 +1,231 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 2 * * 1'  # Weekly Monday at 2 AM UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  issues: write
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout repository
+        with:
+          fetch-depth: 0
+
+      - name: Run GitLeaks secret detection
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+        with:
+          config-path: .gitleaks.toml
+          fail-on-scan-error: true
+          redact: true
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '1'
+
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Trivy configuration scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: 'v2.home-security.uk/compose.yaml'
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
+
+      - name: Run Trivy on Docker images (build scan)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: 'docker.io/prom/prometheus:latest'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Run Trivy on Docker images (build scan)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: 'docker.io/ollama/ollama:latest'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Run Trivy on Docker images (build scan)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: 'cr.fluentbit.io/fluent/fluent-bit:3.2'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Build custom Docker images for scanning
+        id: build-images
+        continue-on-error: true
+        run: |
+          cd v2.home-security.uk/openobserve
+          docker build -t local/openobserve-test . || echo "Failed to build openobserve"
+          cd ../security-ai
+          docker build -t local/security-ai-test . || echo "Failed to build security-ai"
+          cd ../ansible-ai
+          docker build -t local/ansible-ai-test . || echo "Failed to build ansible-ai"
+          cd ../worker-image
+          docker build -t local/worker-image-test . || echo "Failed to build worker-image"
+
+      - name: Scan custom OpenObserve image
+        if: steps.build-images.outcome == 'success'
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: 'local/openobserve-test'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Scan custom security-ai image
+        if: steps.build-images.outcome == 'success'
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: 'local/security-ai-test'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Scan custom ansible-ai image
+        if: steps.build-images.outcome == 'success'
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: 'local/ansible-ai-test'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Scan custom worker-image
+        if: steps.build-images.outcome == 'success'
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: 'local/worker-image-test'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Run dependency check on Python packages
+        continue-on-error: true
+        run: |
+          pip install safety
+          if [ -f "v2.home-security.uk/security-ai/requirements.txt" ]; then
+            safety check -r v2.home-security.uk/security-ai/requirements.txt --json > safety-report.json || true
+            safety check -r v2.home-security.uk/security-ai/requirements.txt || true
+          fi
+          if [ -f "v2.home-security.uk/ansible-ai/requirements.txt" ]; then
+            safety check -r v2.home-security.uk/ansible-ai/requirements.txt --json >> safety-report.json || true
+            safety check -r v2.home-security.uk/ansible-ai/requirements.txt || true
+          fi
+
+      - name: Run bandit security linter on Python files
+        continue-on-error: true
+        run: |
+          pip install bandit
+          bandit -r v2.home-security.uk/security-ai -f json -o bandit-report.json || true
+          bandit -r v2.home-security.uk/ansible-ai -f json -o bandit-ansible-report.json || true
+          bandit -r v2.home-security.uk/scripts -f json -o bandit-scripts-report.json || true
+
+      - name: Generate SBOM with Syft
+        continue-on-error: true
+        uses: anchore/sbom-action@v0
+        with:
+          image: 'local/openobserve-test:latest'
+          format: 'spdx-json'
+          output-file: 'sbom-openobserve.spdx.json'
+        if: steps.build-images.outcome == 'success'
+
+      - name: Generate SBOM with Syft
+        continue-on-error: true
+        uses: anchore/sbom-action@v0
+        with:
+          image: 'local/security-ai-test:latest'
+          format: 'spdx-json'
+          output-file: 'sbom-security-ai.spdx.json'
+        if: steps.build-images.outcome == 'success'
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sbom-artifacts
+          path: |
+            sbom-*.spdx.json
+            trivy-results.sarif
+            safety-report.json
+            bandit-*.json
+
+      - name: Check for license compliance
+        continue-on-error: true
+        run: |
+          pip install licensecheck
+          licensecheck v2.home-security.uk/security-ai --json > license-report.json || true
+          licensecheck v2.home-security.uk/ansible-ai --json >> license-report.json || true
+
+      - name: Create security alert issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Security Alert: Vulnerability or Secret Detected',
+              body: `### Security Scan Alert
+
+A security issue was detected during the automated security scan.
+
+**Action Required:**
+1. Review the workflow run logs for details
+2. For secret detection: rotate/revoke exposed credentials immediately
+3. For vulnerabilities: review and update affected images or code
+4. Check the security tab for detailed findings
+
+**Resources:**
+- [GitHub Security Scanning Documentation](https://docs.github.com/en/code-security/security-scanning)
+- [GitLeaks Documentation](https://github.com/gitleaks/gitleaks)
+- [Trivy Documentation](https://aquasecurity.github.io/trivy/)
+
+**Severity:** CRITICAL/HIGH
+
+**Workflow Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}
+`,
+              labels: ['security', 'critical']

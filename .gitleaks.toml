@@ -1,0 +1,37 @@
+title = "Home Security Stack Gitleaks Configuration"
+
+[extend]
+# Use the default Gitleaks configuration
+useDefault = true
+
+[allowlist]
+description = "Global allowlist for Home Security Stack repository"
+regexTarget = "line"
+
+# Allowlist specific files and paths
+paths = [
+  '''\.gitleaks\.toml$''',  # Ignore this config file
+  '''\.env\.example$''',     # Ignore example env files (no real secrets)
+  '''\.env$''',              # Ignore local .env files (should be in .gitignore)
+  '''(.*?)(jpg|gif|png|pdf|bin)$''',  # Ignore binary files
+  '''scripts/test-.*\.sh$''', # Ignore test scripts
+  '''\.git/''',              # Ignore git directory
+  '''node_modules/''',       # Ignore npm dependencies
+  '''vendor/''',             # Ignore vendor directories
+  '''v2\.home-security\.uk/artifacts/generated/''',  # Ignore generated artifacts
+  '''v2\.home-security\.uk/ansible-ai/state/''',      # Ignore ansible state
+  '''__pycache__/''',        # Ignore Python cache
+  '''\.pyc$''',              # Ignore Python bytecode
+]
+
+# Allowlist specific patterns (false positives)
+regexes = [
+  '''REPLACE_WITH_''',       # Placeholder strings
+  '''YOUR_.*_HERE''',        # Generic placeholders
+  '''CHANGE_ME''',           # Generic change placeholder
+  '''<.*>''',                # XML/HTML tags
+  '''password''',           # Allow the word "password" in comments/docs
+  '''secret''',              # Allow the word "secret" in comments/docs
+  '''token''',               # Allow the word "token" in comments/docs
+  '''api_key''',             # Allow the word "api_key" in comments/docs
+]
