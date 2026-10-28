@@ -209,23 +209,6 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: '🚨 Security Alert: Vulnerability or Secret Detected',
-              body: `### Security Scan Alert
-
-A security issue was detected during the automated security scan.
-
-**Action Required:**
-1. Review the workflow run logs for details
-2. For secret detection: rotate/revoke exposed credentials immediately
-3. For vulnerabilities: review and update affected images or code
-4. Check the security tab for detailed findings
-
-**Resources:**
-- [GitHub Security Scanning Documentation](https://docs.github.com/en/code-security/security-scanning)
-- [GitLeaks Documentation](https://github.com/gitleaks/gitleaks)
-- [Trivy Documentation](https://aquasecurity.github.io/trivy/)
-
-**Severity:** CRITICAL/HIGH
-
-**Workflow Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}
-`,
+              body: '### Security Scan Alert\n\nA security issue was detected during the automated security scan.\n\n**Action Required:**\n1. Review the workflow run logs for details\n2. For secret detection: rotate/revoke exposed credentials immediately\n3. For vulnerabilities: review and update affected images or code\n4. Check the security tab for detailed findings\n\n**Resources:**\n- [GitHub Security Scanning Documentation](https://docs.github.com/en/code-security/security-scanning)\n- [GitLeaks Documentation](https://github.com/gitleaks/gitleaks)\n- [Trivy Documentation](https://aquasecurity.github.io/trivy/)\n\n**Severity:** CRITICAL/HIGH\n\n**Workflow Run:** ' + context.serverUrl + '/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId,
               labels: ['security', 'critical']
+            })
