@@ -34,8 +34,8 @@ services:
       ZO_MEMORY_CACHE_DATAFUSION_MAX_SIZE: "512"
       TZ: ${TZ:-Asia/Manila}
     cpus: 0.50
-    mem_limit: 2048m
-    mem_reservation: 1536m
+    mem_limit: 1700m
+    mem_reservation: 1400m
     volumes:
       - openobserve_data:/data
     networks:
@@ -43,9 +43,9 @@ services:
     stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:5080/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+      interval: 120s
+      timeout: 10s
+      retries: 2
       start_period: 60s
 
   prometheus:
@@ -75,13 +75,13 @@ services:
     networks:
       - security
     cpus: 0.10
-    mem_limit: 160m
+    mem_limit: 128m
     stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "promtool", "query", "instant", "http://localhost:9090", "up"]
-      interval: 30s
+      interval: 120s
       timeout: 10s
-      retries: 3
+      retries: 2
       start_period: 30s
 
   ollama:
@@ -93,9 +93,9 @@ services:
       OLLAMA_CONTEXT_LENGTH: "8192"
       OLLAMA_NUM_PARALLEL: "1"
       OLLAMA_MAX_LOADED_MODELS: "1"
-    cpus: 0.75
-    mem_limit: 2200m
-    mem_reservation: 2048m
+    cpus: 0.50
+    mem_limit: 2100m
+    mem_reservation: 2000m
     volumes:
       - ollama_data:/root/.ollama
     networks:
@@ -106,9 +106,9 @@ services:
       # Keep liveness inexpensive: inference is validated by security-ai and the
       # explicit end-to-end smoke test, not every 30-second health probe.
       test: ["CMD-SHELL", "/bin/ollama list | grep -Fq '${OLLAMA_MODEL:-qwen2.5:3b}'"]
-      interval: 30s
+      interval: 120s
       timeout: 60s
-      retries: 3
+      retries: 2
       start_period: 60s
 
   fluent-bit:
@@ -143,9 +143,9 @@ services:
     stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/fluent-bit.conf", "--dry-run"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+      interval: 120s
+      timeout: 10s
+      retries: 2
       start_period: 15s
   
   security-ai:
@@ -185,9 +185,9 @@ services:
     stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "python", "-c", "import os, sys; expected='/app/security-ai/worker.py'; sys.exit(0 if os.path.exists('/proc/1/cmdline') and expected.encode() in open('/proc/1/cmdline','rb').read() else 1)"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+      interval: 120s
+      timeout: 10s
+      retries: 2
       start_period: 30s
 
   ansible-ai:
@@ -214,9 +214,9 @@ services:
     stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "python", "-c", "import os, sys; expected='/app/ansible-ai/worker.py'; sys.exit(0 if os.path.exists('/proc/1/cmdline') and expected.encode() in open('/proc/1/cmdline','rb').read() else 1)"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+      interval: 120s
+      timeout: 10s
+      retries: 2
       start_period: 30s
 
 networks:
