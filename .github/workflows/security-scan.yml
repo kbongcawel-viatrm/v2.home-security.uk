@@ -577,7 +577,7 @@ jobs:
 
           # Export machine-readable severity totals for the enforcement step.
           (root / "severity-totals.json").write_text(
-              json.dumps(totals, sort_keys=True) + "\\n"
+              json.dumps(totals, sort_keys=True) + "\n"
           )
           PY
           echo "::endgroup::"
