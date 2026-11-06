@@ -1,4 +1,4 @@
-name: Deploy Home Security Stack V2 (prd)
+name: Production Deployment
 
 on:
   workflow_call:
