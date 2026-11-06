@@ -6,11 +6,8 @@ on:
       - main
   workflow_dispatch:
 
-permissions:
-  contents: read
-  actions: write
-  security-events: write
-  packages: write
+# Deny all token permissions by default; grant only what each reusable job needs.
+permissions: {}
 
 concurrency:
   group: main-cicd-${{ github.ref }}
@@ -20,11 +17,18 @@ concurrency:
 jobs:
   security-scan:
     name: Scan
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
     uses: ./.github/workflows/security-scan.yml
     secrets: inherit
 
   staging-deployment:
     name: stg
+    permissions:
+      contents: read
+      packages: write
     needs: security-scan
     if: needs.security-scan.result == 'success'
     uses: ./.github/workflows/stg-deployment.yml
@@ -32,6 +36,8 @@ jobs:
 
   production-deployment:
     name: prd
+    permissions:
+      contents: read
     needs:
       - security-scan
       - staging-deployment
