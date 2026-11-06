@@ -81,15 +81,56 @@ jobs:
             exit 1
           fi
 
-          # Compose requires these values even though CI only builds and scans.
-          # They are deliberately non-production placeholders, not GitHub secrets.
-          export OPENOBSERVE_USER="ci-security-scan@example.invalid"
-          export OPENOBSERVE_PASSWORD="ci-only-not-a-real-password"
+          # Generate a CI-only .env from the repository example. Never use production
+          # credentials in this job; the temporary file is removed by the EXIT trap.
+          ENV_EXAMPLE="$APP_DIR/.env.example"
+          ENV_FILE="$APP_DIR/.env"
+          if [[ ! -f "$ENV_EXAMPLE" ]]; then
+            echo "::error::Environment example not found: $ENV_EXAMPLE"
+            exit 1
+          fi
+          cp "$ENV_EXAMPLE" "$ENV_FILE"
+          cleanup() {
+            rm -f "$ENV_FILE"
+            if [[ -n "${CONFIG_JSON:-}" ]]; then
+              rm -f "$CONFIG_JSON"
+            fi
+          }
+          trap cleanup EXIT
+
+          # Replace empty required values without depending on sed portability.
+          python3 - "$ENV_FILE" <<'PY'
+          import sys
+          from pathlib import Path
+
+          env_file = Path(sys.argv[1])
+          values = {
+              "OPENOBSERVE_USER": "ci-security-scan@example.invalid",
+              "OPENOBSERVE_PASSWORD": "ci-only-not-a-real-password",
+          }
+          lines = env_file.read_text().splitlines()
+          seen = set()
+          output = []
+          for line in lines:
+              stripped = line.strip()
+              if not stripped or stripped.startswith("#") or "=" not in line:
+                  output.append(line)
+                  continue
+              key = line.split("=", 1)[0].strip()
+              if key in values:
+                  output.append(f"{key}={values[key]}")
+                  seen.add(key)
+              else:
+                  output.append(line)
+          missing = set(values) - seen
+          if missing:
+              raise SystemExit("Required keys absent from .env.example: " + ", ".join(sorted(missing)))
+          env_file.write_text("\\n".join(output) + "\\n")
+          PY
 
           # Validate interpolation and render the resolved Compose model.
           docker compose -f "$COMPOSE_FILE" config --quiet
           CONFIG_JSON="$(mktemp)"
-          trap 'rm -f "$CONFIG_JSON"' EXIT
           docker compose -f "$COMPOSE_FILE" config --format json > "$CONFIG_JSON"
 
           # Pull registry images explicitly. Compose pull policies are intended
