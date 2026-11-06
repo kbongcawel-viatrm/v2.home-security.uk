@@ -82,7 +82,18 @@ jobs:
           cache: true
 
       # --------------------------------------------------
-      # 5. Pull and build container images
+      # 5. Configure BuildKit caching for container builds
+      # --------------------------------------------------
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Set up Docker Compose
+        uses: docker/setup-compose-action@v2
+        with:
+          version: latest
+
+      # --------------------------------------------------
+      # 6. Pull and build container images
       # --------------------------------------------------
       - name: Pull and build Compose images
         id: build-images
@@ -117,10 +128,14 @@ jobs:
           fi
           cp "$ENV_EXAMPLE" "$ENV_FILE"
           CONFIG_JSON=""
+          CACHE_OVERRIDE=""
           cleanup() {
             rm -f "$ENV_FILE"
             if [[ -n "$CONFIG_JSON" ]]; then
               rm -f "$CONFIG_JSON"
+            fi
+            if [[ -n "$CACHE_OVERRIDE" ]]; then
+              rm -f "$CACHE_OVERRIDE"
             fi
           }
           trap cleanup EXIT
@@ -162,7 +177,20 @@ jobs:
 
           # Pass the temporary env file explicitly because the Compose file
           # is not at the repository root.
-          COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+          # Keep GitHub Actions cache configuration out of the portable Compose file.
+          # Compose merges this temporary override with the repository configuration.
+          CACHE_OVERRIDE="$(mktemp)"
+          cat > "$CACHE_OVERRIDE" <<'YAML'
+          services:
+            openobserve:
+              build:
+                cache_from:
+                  - type=gha,scope=openobserve
+                cache_to:
+                  - type=gha,mode=max,scope=openobserve,ignore-error=true
+          YAML
+
+          COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$CACHE_OVERRIDE")
 
           # Validate interpolation and render the resolved Compose model.
           "${COMPOSE[@]}" config --quiet
@@ -207,8 +235,11 @@ jobs:
           # Build the worker image using the exact tag referenced by Compose.
           WORKER_DOCKERFILE="$APP_DIR/worker-image/Dockerfile"
           if [[ -f "$WORKER_DOCKERFILE" ]]; then
-            docker build \
+            docker buildx build \
               --pull \
+              --load \
+              --cache-from "type=gha,scope=worker-template" \
+              --cache-to "type=gha,mode=max,scope=worker-template,ignore-error=true" \
               --file "$WORKER_DOCKERFILE" \
               --tag "$WORKER_IMAGE" \
               "$APP_DIR"
