@@ -3,7 +3,7 @@ name: Deploy Home Security Stack V2 (prd)
 on:
   workflow_run:
     workflows:
-      - Deploy Home Security Stack V2 (Dry-run)
+      - Deploy Home Security Stack V2 (stg)
     types:
       - completed
     branches:
