@@ -111,7 +111,7 @@ services:
       retries: 2
       start_period: 60s
   
-   ollama-init:
+  ollama-init:
     image: docker.io/ollama/ollama:${OLLAMA_TAG:-latest}
     pull_policy: never
     container_name: ollama-init
