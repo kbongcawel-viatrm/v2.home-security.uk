@@ -9,6 +9,8 @@ on:
 permissions:
   contents: read
   actions: write
+  security-events: write
+  packages: write
 
 concurrency:
   group: main-cicd-${{ github.ref }}
@@ -19,12 +21,14 @@ jobs:
   security-scan:
     name: Run security scan
     uses: ./.github/workflows/security-scan.yml
+    secrets: inherit
 
   staging-deployment:
     name: Deploy to staging
     needs: security-scan
     if: needs.security-scan.result == 'success'
     uses: ./.github/workflows/stg-deployment.yml
+    secrets: inherit
 
   production-deployment:
     name: Deploy to production
@@ -36,3 +40,4 @@ jobs:
       needs.security-scan.result == 'success' &&
       needs.staging-deployment.result == 'success'
     uses: ./.github/workflows/prd-deployment.yml
+    secrets: inherit
