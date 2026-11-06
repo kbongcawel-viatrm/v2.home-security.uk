@@ -2,7 +2,6 @@ name: Staging
 
 on:
   workflow_call:
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -266,6 +265,8 @@ jobs:
           fi
 
           build_args=(
+            --pull=always
+            --no-cache
             --layers
             --ignorefile "$CONTEXT/.containerignore" \
             --file "$CONTEXT/Dockerfile" \
@@ -274,6 +275,8 @@ jobs:
 
           if [[ "${PODMAN_CACHE_ENABLED:-false}" == "true" ]]; then
             if ! podman build \
+              --pull=always \
+              --no-cache \
               --layers \
               --cache-from "$CACHE_IMAGE" \
               --cache-to "$CACHE_IMAGE" \
@@ -283,6 +286,8 @@ jobs:
               .; then
               echo "::warning::Remote cache build failed; retrying with cache export only."
               if ! podman build \
+                --pull=always \
+                --no-cache \
                 --layers \
                 --cache-to "$CACHE_IMAGE" \
                 --ignorefile "$CONTEXT/.containerignore" \
