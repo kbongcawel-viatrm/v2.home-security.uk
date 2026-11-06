@@ -1,15 +1,8 @@
-
 name: Deploy Home Security Stack V2 (stg)
 
 on:
-  workflow_dispatch: 
-  workflow_run:
-    workflows:
-      - Security Scan
-    types:
-      - completed
-    branches:
-      - main
+  workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,14 +15,8 @@ concurrency:
 jobs:
   deploy:
     name: Build, Validate and Deploy
-    # Permit manual runs; workflow_run runs only after a successful scan of main.
-    if: >-
-      (github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+    # The orchestrator gates this reusable workflow; manual runs are main-only.
+    if: github.ref == 'refs/heads/main'
 
     runs-on:
       - ubuntu-latest
@@ -43,7 +30,7 @@ jobs:
       - name: Checkout scanned commit
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 1
 
       - name: Install missing Podman tooling
