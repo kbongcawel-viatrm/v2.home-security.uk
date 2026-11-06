@@ -35,6 +35,16 @@ jobs:
           fetch-depth: 0
 
       # --------------------------------------------------
+      # 2. Upgrade pip on the GitHub Actions runner
+      # --------------------------------------------------
+      - name: Upgrade pip
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip --version
+
+      # --------------------------------------------------
       # 2. Gitleaks secret detection
       # --------------------------------------------------
       - name: Run Gitleaks secret detection
