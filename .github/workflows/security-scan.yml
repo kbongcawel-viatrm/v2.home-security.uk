@@ -98,18 +98,25 @@ jobs:
           }
           trap cleanup EXIT
 
-          # Replace empty required values without depending on sed portability.
+          # Credentials come from GitHub Actions Secrets, never tracked files.
+          : "${OPENOBSERVE_USER:?GitHub secret OPENOBSERVE_USER is not configured}"
+          : "${OPENOBSERVE_PASSWORD:?GitHub secret OPENOBSERVE_PASSWORD is not configured}"
+
+          # Replace the two dotenv entries with secret values.
+          # dotenv double quotes support escaped characters and literal dollar signs.
           python3 - "$ENV_FILE" <<'PY'
+          import json
+          import os
           import sys
           from pathlib import Path
 
           env_file = Path(sys.argv[1])
           values = {
-              "OPENOBSERVE_USER": "ci-security-scan@example.invalid",
-              "OPENOBSERVE_PASSWORD": "ci-only-not-a-real-password",
+              "OPENOBSERVE_USER": os.environ["OPENOBSERVE_USER"],
+              "OPENOBSERVE_PASSWORD": os.environ["OPENOBSERVE_PASSWORD"],
           }
           lines = env_file.read_text().splitlines()
-          seen = set()
+          found = set()
           output = []
           for line in lines:
               stripped = line.strip()
@@ -118,20 +125,27 @@ jobs:
                   continue
               key = line.split("=", 1)[0].strip()
               if key in values:
-                  output.append(f"{key}={values[key]}")
-                  seen.add(key)
+                  output.append(f"{key}={json.dumps(values[key])}")
+                  found.add(key)
               else:
                   output.append(line)
-          missing = set(values) - seen
+          missing = set(values) - found
           if missing:
-              raise SystemExit("Required keys absent from .env.example: " + ", ".join(sorted(missing)))
+              raise SystemExit(
+                  "Required keys absent from .env.example: "
+                  + ", ".join(sorted(missing))
+              )
           env_file.write_text("\\n".join(output) + "\\n")
           PY
 
+          # Pass the temporary env file explicitly because the Compose file
+          # is not at the repository root.
+          COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+
           # Validate interpolation and render the resolved Compose model.
-          docker compose -f "$COMPOSE_FILE" config --quiet
+          "${COMPOSE[@]}" config --quiet
           CONFIG_JSON="$(mktemp)"
-          docker compose -f "$COMPOSE_FILE" config --format json > "$CONFIG_JSON"
+          "${COMPOSE[@]}" config --format json > "$CONFIG_JSON"
 
           # Pull registry images explicitly. Compose pull policies are intended
           # for runtime behavior; CI must ensure every scan target is local.
@@ -166,7 +180,7 @@ jobs:
           done < "$RESULTS_DIR/pull-images.txt"
 
           # Build services that declare a Compose build context.
-          docker compose -f "$COMPOSE_FILE" build --pull
+          "${COMPOSE[@]}" build --pull
 
           # Build the worker image using the exact tag referenced by Compose.
           WORKER_DOCKERFILE="$APP_DIR/worker-image/Dockerfile"
@@ -182,7 +196,7 @@ jobs:
           fi
 
           # Discover the final Compose image set and verify every image exists.
-          docker compose -f "$COMPOSE_FILE" config --images \
+          "${COMPOSE[@]}" config --images \
             | sort -u > "$RESULTS_DIR/images.txt"
 
           if [[ ! -s "$RESULTS_DIR/images.txt" ]]; then
