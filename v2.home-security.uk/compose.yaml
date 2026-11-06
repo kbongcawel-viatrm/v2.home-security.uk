@@ -138,7 +138,7 @@ services:
         echo "Ollama initialization completed."
   
   fluent-bit:
-    image: cr.fluentbit.io/fluent/fluent-bit:${FLUENT_BIT_TAG:-3.2}
+    image: cr.fluentbit.io/fluent/fluent-bit:${FLUENT_BIT_TAG:-5.1.5}
     container_name: fluent-bit
     pull_policy: never 
     restart: unless-stopped
