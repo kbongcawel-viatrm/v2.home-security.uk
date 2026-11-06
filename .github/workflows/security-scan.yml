@@ -63,6 +63,9 @@ jobs:
       # --------------------------------------------------
       - name: Pull and build Compose images
         id: build-images
+        env:
+          OPENOBSERVE_USER: ${{ secrets.OPENOBSERVE_USER }}
+          OPENOBSERVE_PASSWORD: ${{ secrets.OPENOBSERVE_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
@@ -90,9 +93,10 @@ jobs:
             exit 1
           fi
           cp "$ENV_EXAMPLE" "$ENV_FILE"
+          CONFIG_JSON=""
           cleanup() {
             rm -f "$ENV_FILE"
-            if [[ -n "${CONFIG_JSON:-}" ]]; then
+            if [[ -n "$CONFIG_JSON" ]]; then
               rm -f "$CONFIG_JSON"
             fi
           }
@@ -102,8 +106,7 @@ jobs:
           : "${OPENOBSERVE_USER:?GitHub secret OPENOBSERVE_USER is not configured}"
           : "${OPENOBSERVE_PASSWORD:?GitHub secret OPENOBSERVE_PASSWORD is not configured}"
 
-          # Replace the two dotenv entries with secret values.
-          # dotenv double quotes support escaped characters and literal dollar signs.
+          # Write Compose dotenv values safely; do not source this file as shell code.
           python3 - "$ENV_FILE" <<'PY'
           import json
           import os
@@ -119,8 +122,7 @@ jobs:
           found = set()
           output = []
           for line in lines:
-              stripped = line.strip()
-              if not stripped or stripped.startswith("#") or "=" not in line:
+              if not line.strip() or line.lstrip().startswith("#") or "=" not in line:
                   output.append(line)
                   continue
               key = line.split("=", 1)[0].strip()
@@ -131,11 +133,8 @@ jobs:
                   output.append(line)
           missing = set(values) - found
           if missing:
-              raise SystemExit(
-                  "Required keys absent from .env.example: "
-                  + ", ".join(sorted(missing))
-              )
-          env_file.write_text("\\n".join(output) + "\\n")
+              raise SystemExit("Required keys absent from .env.example: " + ", ".join(sorted(missing)))
+          env_file.write_text("\n".join(output) + "\n")
           PY
 
           # Pass the temporary env file explicitly because the Compose file
