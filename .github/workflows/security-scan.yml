@@ -83,7 +83,18 @@ jobs:
           cache: true
 
       # --------------------------------------------------
-      # 5. Pull and build container images
+      # 5. Configure BuildKit caching for container builds
+      # --------------------------------------------------
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Set up Docker Compose
+        uses: docker/setup-compose-action@v2
+        with:
+          version: latest
+
+      # --------------------------------------------------
+      # 6. Pull and build container images
       # --------------------------------------------------
       - name: Pull and build Compose images
         id: build-images
@@ -118,10 +129,14 @@ jobs:
           fi
           cp "$ENV_EXAMPLE" "$ENV_FILE"
           CONFIG_JSON=""
+          CACHE_OVERRIDE=""
           cleanup() {
             rm -f "$ENV_FILE"
             if [[ -n "$CONFIG_JSON" ]]; then
               rm -f "$CONFIG_JSON"
+            fi
+            if [[ -n "$CACHE_OVERRIDE" ]]; then
+              rm -f "$CACHE_OVERRIDE"
             fi
           }
           trap cleanup EXIT
@@ -163,7 +178,20 @@ jobs:
 
           # Pass the temporary env file explicitly because the Compose file
           # is not at the repository root.
-          COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+          # Keep GitHub Actions cache configuration out of the portable Compose file.
+          # Compose merges this temporary override with the repository configuration.
+          CACHE_OVERRIDE="$(mktemp)"
+          cat > "$CACHE_OVERRIDE" <<'YAML'
+          services:
+            openobserve:
+              build:
+                cache_from:
+                  - type=gha,scope=openobserve
+                cache_to:
+                  - type=gha,mode=max,scope=openobserve,ignore-error=true
+          YAML
+
+          COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$CACHE_OVERRIDE")
 
           # Validate interpolation and render the resolved Compose model.
           "${COMPOSE[@]}" config --quiet
@@ -208,8 +236,11 @@ jobs:
           # Build the worker image using the exact tag referenced by Compose.
           WORKER_DOCKERFILE="$APP_DIR/worker-image/Dockerfile"
           if [[ -f "$WORKER_DOCKERFILE" ]]; then
-            docker build \
+            docker buildx build \
               --pull \
+              --load \
+              --cache-from "type=gha,scope=worker-template" \
+              --cache-to "type=gha,mode=max,scope=worker-template,ignore-error=true" \
               --file "$WORKER_DOCKERFILE" \
               --tag "$WORKER_IMAGE" \
               "$APP_DIR"
@@ -239,7 +270,7 @@ jobs:
           cat "$RESULTS_DIR/images.txt"
          
       # --------------------------------------------------
-      # 6. Scan every image with Trivy
+      # 7. Scan every image with Trivy
       # --------------------------------------------------
       - name: Scan container images
         id: scan-images
@@ -292,7 +323,7 @@ jobs:
           done < "$RESULTS_DIR/images.txt"
 
       # --------------------------------------------------
-      # 7. Generate HTML and Markdown security summaries
+      # 8. Generate HTML and Markdown security summaries
       # --------------------------------------------------
       - name: Generate security reports
         if: always()
@@ -537,7 +568,7 @@ jobs:
           cat security-results/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       # --------------------------------------------------
-      # 8. Upload Gitleaks findings to GitHub Security
+      # 9. Upload Gitleaks findings to GitHub Security
       # --------------------------------------------------
       - name: Upload Gitleaks results
         if: always() && hashFiles('results.sarif') != ''
@@ -547,7 +578,7 @@ jobs:
           category: gitleaks
 
       # --------------------------------------------------
-      # 9. Upload Trivy findings to GitHub Security
+      # 10. Upload Trivy findings to GitHub Security
       # --------------------------------------------------
       - name: Upload Trivy results
         if: always() && hashFiles('security-results/sarif/*.sarif') != ''
@@ -556,7 +587,7 @@ jobs:
           sarif_file: security-results/sarif/
 
       # --------------------------------------------------
-      # 10. Upload reports and artifacts
+      # 11. Upload reports and artifacts
       # --------------------------------------------------
       - name: Upload security reports and HTML summary
         if: always()
@@ -570,7 +601,7 @@ jobs:
           retention-days: 30
 
       # --------------------------------------------------
-      # 11. Enforce scan execution result
+      # 12. Enforce scan execution result
       # --------------------------------------------------
       - name: Validate security scan execution
         if: always()
