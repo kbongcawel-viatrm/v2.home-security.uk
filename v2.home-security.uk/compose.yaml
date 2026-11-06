@@ -94,7 +94,7 @@ services:
       OLLAMA_NUM_PARALLEL: "1"
       OLLAMA_MAX_LOADED_MODELS: "1"
     cpus: 0.50
-    mem_limit: 2100m
+    mem_limit: 2500m
     mem_reservation: 2000m
     volumes:
       - ollama_data:/root/.ollama
@@ -105,12 +105,38 @@ services:
     healthcheck:
       # Keep liveness inexpensive: inference is validated by security-ai and the
       # explicit end-to-end smoke test, not every 30-second health probe.
-      test: ["CMD-SHELL", "/bin/ollama list | grep -Fq '${OLLAMA_MODEL:-qwen2.5:3b}'"]
+      test: ["CMD-SHELL", "/bin/ollama list | grep -Fq '${OLLAMA_MODEL:-qwen2.5-coder:1.5b}'"]
       interval: 120s
       timeout: 60s
       retries: 2
       start_period: 60s
-
+  
+   ollama-init:
+    image: docker.io/ollama/ollama:${OLLAMA_TAG:-latest}
+    pull_policy: never
+    container_name: ollama-init
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5-coder:1.5b}
+    networks:
+      - security
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        echo "Checking Ollama model: $$OLLAMA_MODEL"
+        if ollama list | grep -Fq "$$OLLAMA_MODEL"; then
+          echo "Model already exists. Skipping download."
+        else
+          echo "Downloading model: $$OLLAMA_MODEL"
+          ollama pull "$$OLLAMA_MODEL"
+        fi
+        echo "Ollama initialization completed."
+  
   fluent-bit:
     image: cr.fluentbit.io/fluent/fluent-bit:${FLUENT_BIT_TAG:-3.2}
     container_name: fluent-bit
