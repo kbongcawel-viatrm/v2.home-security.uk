@@ -273,8 +273,10 @@ jobs:
 
           # Menu option 1 starts the stack.
           # Option 0 exits after startup; this avoids the interactive pause.
-          printf '1\n0\n' | timeout 240s bash "$SCRIPT"
-
+          # Original way: printf '1\n' && sleep 20 && exit 0;| timeout 240s bash "$SCRIPT"
+          # Send option 1, wait 20 seconds, then send option 0.
+          # Apply a 240-second timeout to the script.
+          { printf '1\n'; sleep 20; printf '0\n'; } | timeout 240s bash "$SCRIPT"
       # --------------------------------------------------
       # 9. Check container health using option 4
       # --------------------------------------------------
