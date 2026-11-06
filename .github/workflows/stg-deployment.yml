@@ -1,5 +1,5 @@
 
-name: Deploy Home Security Stack V2 (Dry-run)
+name: Deploy Home Security Stack V2 (Stg)
 
 on:
   workflow_dispatch: 
