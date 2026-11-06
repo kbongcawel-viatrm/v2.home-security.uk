@@ -1,5 +1,5 @@
 
-name: Deploy Home Security Stack V2 (Stg)
+name: Deploy Home Security Stack V2 (stg)
 
 on:
   workflow_dispatch: 
