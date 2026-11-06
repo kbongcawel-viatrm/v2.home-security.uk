@@ -40,6 +40,24 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 1
 
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.15.2'
+
+      - name: Install/Upgrade needed dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m pip install --upgrade pip
+          python -m pip --version
+
+          sudo apt-get update
+          sudo apt-get install -y podman podman-compose
+
+          podman --version
+          podman-compose --version
       # --------------------------------------------------
       # 2. Configure application directory and tooling
       # --------------------------------------------------
