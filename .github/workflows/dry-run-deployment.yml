@@ -1,5 +1,5 @@
 
-name: Deploy Home Security Stack V2
+name: Deploy Home Security Stack V2 (Dry-run)
 
 on:
   workflow_run:
@@ -26,8 +26,7 @@ jobs:
       github.event.workflow_run.head_branch == 'main'
 
     runs-on:
-      - self-hosted
-      - fedora-secureblue
+      - ubuntu-latest
 
     timeout-minutes: 45
 
