@@ -1,0 +1,7 @@
+**
+!worker-image/
+!worker-image/Dockerfile
+!security-ai/
+!security-ai/**
+!ansible-ai/
+!ansible-ai/**

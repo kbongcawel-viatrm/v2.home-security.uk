@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 concurrency:
   group: home-security-stack-deployment
@@ -21,10 +22,14 @@ concurrency:
 jobs:
   deploy:
     name: Build, Validate and Deploy
-    # Run only after a successful Security Scan on main.
+    # Permit manual runs; workflow_run runs only after a successful scan of main.
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main'
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
 
     runs-on:
       - ubuntu-latest
@@ -36,29 +41,31 @@ jobs:
       # 1. Checkout the exact commit that passed scanning
       # --------------------------------------------------
       - name: Checkout scanned commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 1
 
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.15.2'
-
-      - name: Install/Upgrade needed dependencies
+      - name: Install missing Podman tooling
         shell: bash
         run: |
           set -euo pipefail
 
-          python -m pip install --upgrade pip
-          python -m pip --version
+          packages=()
+          command -v podman >/dev/null 2>&1 || packages+=(podman)
+          command -v podman-compose >/dev/null 2>&1 || packages+=(podman-compose)
 
-          sudo apt-get update
-          sudo apt-get install -y podman podman-compose
+          if (( ${#packages[@]} > 0 )); then
+            echo "Installing missing packages: ${packages[*]}"
+            sudo apt-get update
+            sudo apt-get install -y "${packages[@]}"
+          else
+            echo "Podman and podman-compose are already installed."
+          fi
 
           podman --version
           podman-compose --version
+          python3 --version
       # --------------------------------------------------
       # 2. Configure application directory and tooling
       # --------------------------------------------------
@@ -79,7 +86,7 @@ jobs:
           for cmd in podman podman-compose python3 timeout; do
             if ! command -v "$cmd" >/dev/null 2>&1; then
               echo "::error::Required command is missing: $cmd"
-              echo "Install Podman and podman-compose on the Fedora Secureblue runner."
+              echo "Install Podman and podman-compose in this GitHub Actions runner."
               exit 1
             fi
           done
@@ -90,7 +97,33 @@ jobs:
           podman info >/dev/null
 
       # --------------------------------------------------
-      # 3. Configure container signature policy
+      # 3. Authenticate to GHCR for remote Buildah layer caches
+      # --------------------------------------------------
+      - name: Configure Podman build cache
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          CACHE_AUTH_FILE="$RUNNER_TEMP/podman-auth.json"
+          install -m 600 /dev/null "$CACHE_AUTH_FILE"
+
+          if printf '%s' "$GH_TOKEN" | podman login \
+            --authfile "$CACHE_AUTH_FILE" \
+            --username "$GITHUB_ACTOR" \
+            --password-stdin ghcr.io; then
+            echo "REGISTRY_AUTH_FILE=$CACHE_AUTH_FILE" >> "$GITHUB_ENV"
+            echo "PODMAN_CACHE_ENABLED=true" >> "$GITHUB_ENV"
+            echo "Podman remote layer cache authentication configured."
+          else
+            rm -f "$CACHE_AUTH_FILE"
+            echo "PODMAN_CACHE_ENABLED=false" >> "$GITHUB_ENV"
+            echo "::warning::GHCR cache authentication failed; builds will run without remote cache."
+          fi
+
+      # --------------------------------------------------
+      # 4. Configure container signature policy
       # --------------------------------------------------
       - name: Configure container registry policy
         shell: bash
@@ -121,7 +154,7 @@ jobs:
           echo "Container signature policy configured."
 
       # --------------------------------------------------
-      # 4. Generate .env from GitHub Secrets
+      # 5. Generate .env from GitHub Secrets
       # --------------------------------------------------
       - name: Generate environment configuration
         shell: bash
@@ -205,7 +238,19 @@ jobs:
           PY
 
       # --------------------------------------------------
-      # 5. Pull container images
+      # 6. Validate Compose configuration before downloading/building images
+      # --------------------------------------------------
+      - name: Validate Compose configuration
+        shell: bash
+        working-directory: v2.home-security.uk
+        run: |
+          set -euo pipefail
+
+          podman-compose -f compose.yaml config >/dev/null
+          echo "Compose configuration validation passed."
+
+      # --------------------------------------------------
+      # 7. Pull container images
       # --------------------------------------------------
       - name: Pull container images
         shell: bash
@@ -216,7 +261,7 @@ jobs:
           podman-compose -f compose.yaml pull
 
       # --------------------------------------------------
-      # 6. Build worker-template image
+      # 8. Build worker-template image
       # --------------------------------------------------
       - name: Build worker-template image
         shell: bash
@@ -226,36 +271,50 @@ jobs:
 
           IMAGE="demo.goharbor.io/home-security-uk/worker-template:1.3"
           CONTEXT="./worker-image"
+          CACHE_IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}-worker-template-cache"
 
           if [[ ! -f "$CONTEXT/Dockerfile" ]]; then
             echo "::error::Worker image Dockerfile not found: $CONTEXT/Dockerfile"
             exit 1
           fi
 
-          podman build \
+          build_args=(
+            --layers
+            --ignorefile "$CONTEXT/.containerignore" \
             --file "$CONTEXT/Dockerfile" \
-            --tag "$IMAGE" \
-            .
+            --tag "$IMAGE"
+          )
+
+          if [[ "${PODMAN_CACHE_ENABLED:-false}" == "true" ]]; then
+            if ! podman build \
+              --layers \
+              --cache-from "$CACHE_IMAGE" \
+              --cache-to "$CACHE_IMAGE" \
+              --ignorefile "$CONTEXT/.containerignore" \
+              --file "$CONTEXT/Dockerfile" \
+              --tag "$IMAGE" \
+              .; then
+              echo "::warning::Remote cache build failed; retrying with cache export only."
+              if ! podman build \
+                --layers \
+                --cache-to "$CACHE_IMAGE" \
+                --ignorefile "$CONTEXT/.containerignore" \
+                --file "$CONTEXT/Dockerfile" \
+                --tag "$IMAGE" \
+                .; then
+                echo "::warning::Remote cache export unavailable; retrying with local layer caching only."
+                podman build "${build_args[@]}" .
+              fi
+            fi
+          else
+            podman build "${build_args[@]}" .
+          fi
 
           podman image exists "$IMAGE"
-
           echo "Built image: $IMAGE"
 
       # --------------------------------------------------
-      # 7. Validate Compose configuration
-      # --------------------------------------------------
-      - name: Validate Compose configuration
-        shell: bash
-        working-directory: v2.home-security.uk
-        run: |
-          set -euo pipefail
-
-          podman-compose -f compose.yaml config >/dev/null
-
-          echo "Compose configuration validation passed."
-
-      # --------------------------------------------------
-      # 8. Start stack using launch-stack.sh option 1
+      # 9. Start stack using launch-stack.sh option 1
       # --------------------------------------------------
       - name: Start container stack
         shell: bash
@@ -272,44 +331,21 @@ jobs:
 
           chmod +x "$SCRIPT"
 
-          # Menu option 1 starts the stack.
-          # Option 0 exits after startup; this avoids the interactive pause.
-          # Original way: printf '1\n' | timeout 240s bash "$SCRIPT"
-          # Send option 1, wait 20 seconds, then send option 0.
-          # Apply a 240-second timeout to the script.
-          printf '0\n' | bash "$SCRIPT"
+          # Use the script's CLI mode; avoid interactive stdin/menu handling in CI.
+          timeout 240s bash "$SCRIPT" 1
       # --------------------------------------------------
-      # 9. Check container health using option 4
+      # 10. Check container health using option 4
       # --------------------------------------------------
       - name: Validate container health
         shell: bash
         working-directory: v2.home-security.uk
         run: |
           set -euo pipefail
-          echo "=== Container Resource Limits ==="
-          echo "---------------------------------"
-          printf "%-20s %12s %15s %16s\n" "NAME" "MEMORY(GB)" "CPU_QUOTA(ms)" "CPU_PERIOD(ms)"
-          printf "%s\n" "-----------------------------------------------------------------------"
-          
-          podman inspect --format "{{.Name}} {{.HostConfig.Memory}} {{.HostConfig.CpuQuota}} {{.HostConfig.CpuPeriod}}" \
-            openobserve ollama fluent-bit security-ai ansible-ai 2>&1 |
-          while read -r name memory cpu_quota cpu_period; do
-              memory_gb=$(awk -v m="$memory" "BEGIN {printf \"%.2f\", m/1000000000}")
-              if [ "$cpu_quota" -lt 0 ]; then
-                  quota_ms="unlimited"
-              else
-                  quota_ms=$(awk -v q="$cpu_quota" "BEGIN {printf \"%.2f\", q/1000}")
-              fi
-              period_ms=$(awk -v p="$cpu_period" "BEGIN {printf \"%.2f\", p/1000}")
-              printf "%-20s %12s %15s %16s\n" "$name" "$memory_gb" "$quota_ms" "$period_ms"
-          done
-          
-          echo
           echo "=== Container Resource Usage ==="
           echo "--------------------------------"
           podman stats --all --no-stream
       # --------------------------------------------------
-      # 10. Deployment summary
+      # 11. Deployment summary
       # --------------------------------------------------
       - name: Deployment summary
         if: success()
@@ -351,8 +387,11 @@ jobs:
       # --------------------------------------------------
       # Remove generated secrets from workspace
       # --------------------------------------------------
-      - name: Remove generated environment file
+      - name: Remove generated credentials and environment file
         if: always()
         shell: bash
         run: |
+          set +e
+          podman logout --authfile "$RUNNER_TEMP/podman-auth.json" ghcr.io >/dev/null 2>&1
+          rm -f "$RUNNER_TEMP/podman-auth.json"
           rm -f v2.home-security.uk/.env
