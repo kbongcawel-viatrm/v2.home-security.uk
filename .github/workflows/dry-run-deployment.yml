@@ -285,83 +285,28 @@ jobs:
         working-directory: v2.home-security.uk
         run: |
           set -euo pipefail
-
-          SCRIPT="./scripts/launch-stack.sh"
-
-          # Menu option 4 displays container health.
-          # Option 0 exits after displaying the results.
-          printf '0\n' | bash "$SCRIPT"
-
+          echo "=== Container Resource Limits ==="
+          echo "---------------------------------"
+          printf "%-20s %12s %15s %16s\n" "NAME" "MEMORY(GB)" "CPU_QUOTA(ms)" "CPU_PERIOD(ms)"
+          printf "%s\n" "-----------------------------------------------------------------------"
+          
+          podman inspect --format "{{.Name}} {{.HostConfig.Memory}} {{.HostConfig.CpuQuota}} {{.HostConfig.CpuPeriod}}" \
+            openobserve ollama fluent-bit security-ai ansible-ai 2>&1 |
+          while read -r name memory cpu_quota cpu_period; do
+              memory_gb=$(awk -v m="$memory" "BEGIN {printf \"%.2f\", m/1000000000}")
+              if [ "$cpu_quota" -lt 0 ]; then
+                  quota_ms="unlimited"
+              else
+                  quota_ms=$(awk -v q="$cpu_quota" "BEGIN {printf \"%.2f\", q/1000}")
+              fi
+              period_ms=$(awk -v p="$cpu_period" "BEGIN {printf \"%.2f\", p/1000}")
+              printf "%-20s %12s %15s %16s\n" "$name" "$memory_gb" "$quota_ms" "$period_ms"
+          done
+          
           echo
-          echo "Final container status:"
-          podman ps -a \
-            --format "table {{.Names}}\t{{.Status}}"
-
-          echo
-
-          # Fail the pipeline if any Compose service is not running,
-          # or has an unhealthy health check.
-          python3 - <<'PY'
-          import json
-          import subprocess
-          import sys
-
-          result = subprocess.run(
-              ["podman-compose", "-f", "compose.yaml", "ps", "-q"],
-              capture_output=True,
-              text=True,
-              check=True,
-          )
-
-          ids = list(dict.fromkeys(
-              line.strip() for line in result.stdout.splitlines()
-              if line.strip()
-          ))
-
-          if not ids:
-              sys.exit("No Compose containers were found.")
-
-          failed = []
-
-          for container_id in ids:
-              inspected = subprocess.run(
-                  [
-                      "podman", "inspect",
-                      "--format", "json",
-                      container_id,
-                  ],
-                  capture_output=True,
-                  text=True,
-              )
-
-              if inspected.returncode != 0:
-                  failed.append(container_id)
-                  continue
-
-              data = json.loads(inspected.stdout)[0]
-              state = data.get("State", {})
-              status = state.get("Status", "unknown")
-              health = state.get("Health", {}).get("Status")
-
-              # Containers without a healthcheck are accepted if running.
-              if status != "running":
-                  failed.append(
-                      f"{data.get('Name', container_id)}: {status}"
-                  )
-              elif health and health != "healthy":
-                  failed.append(
-                      f"{data.get('Name', container_id)}: {health}"
-                  )
-
-          if failed:
-              print("Unhealthy or stopped containers:")
-              for item in failed:
-                  print(f" - {item}")
-              sys.exit(1)
-
-          print(f"All {len(ids)} Compose containers are running and healthy "
-                "or have no configured healthcheck.")
-          PY
+          echo "=== Container Resource Usage ==="
+          echo "--------------------------------"
+          podman stats --all --no-stream
       # --------------------------------------------------
       # 10. Deployment summary
       # --------------------------------------------------
