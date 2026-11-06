@@ -24,10 +24,12 @@ jobs:
     name: Build, Validate and Deploy
     # Permit manual runs; workflow_run runs only after a successful scan of main.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
 
     runs-on:
       - ubuntu-latest
@@ -84,7 +86,7 @@ jobs:
           for cmd in podman podman-compose python3 timeout; do
             if ! command -v "$cmd" >/dev/null 2>&1; then
               echo "::error::Required command is missing: $cmd"
-              echo "Install Podman and podman-compose on the Fedora Secureblue runner."
+              echo "Install Podman and podman-compose in this GitHub Actions runner."
               exit 1
             fi
           done
