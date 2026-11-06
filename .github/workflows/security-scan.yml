@@ -53,10 +53,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
+          echo "::group::Show logs"
           python -m pip install --upgrade pip
+          echo "::endgroup::"
           python -m pip --version
-
+          
       # --------------------------------------------------
       # 3. Gitleaks secret detection
       # --------------------------------------------------
