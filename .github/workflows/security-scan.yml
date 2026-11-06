@@ -45,7 +45,7 @@ jobs:
           python -m pip --version
 
       # --------------------------------------------------
-      # 2. Gitleaks secret detection
+      # 3. Gitleaks secret detection
       # --------------------------------------------------
       - name: Run Gitleaks secret detection
         id: gitleaks
@@ -60,7 +60,7 @@ jobs:
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
       # --------------------------------------------------
-      # 3. Install Trivy
+      # 4. Install Trivy
       # --------------------------------------------------
       - name: Setup Trivy
         uses: aquasecurity/setup-trivy@v0.3.1
@@ -69,7 +69,7 @@ jobs:
           cache: true
 
       # --------------------------------------------------
-      # 4. Pull and build container images
+      # 5. Pull and build container images
       # --------------------------------------------------
       - name: Pull and build Compose images
         id: build-images
@@ -225,7 +225,7 @@ jobs:
           cat "$RESULTS_DIR/images.txt"
 
       # --------------------------------------------------
-      # 5. Scan every image with Trivy
+      # 6. Scan every image with Trivy
       # --------------------------------------------------
       - name: Scan container images
         id: scan-images
@@ -278,7 +278,7 @@ jobs:
           done < "$RESULTS_DIR/images.txt"
 
       # --------------------------------------------------
-      # 6. Generate HTML and Markdown security summaries
+      # 7. Generate HTML and Markdown security summaries
       # --------------------------------------------------
       - name: Generate security reports
         if: always()
@@ -522,7 +522,7 @@ jobs:
           cat security-results/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       # --------------------------------------------------
-      # 7. Upload Gitleaks findings to GitHub Security
+      # 8. Upload Gitleaks findings to GitHub Security
       # --------------------------------------------------
       - name: Upload Gitleaks results
         if: always() && hashFiles('results.sarif') != ''
@@ -532,7 +532,7 @@ jobs:
           category: gitleaks
 
       # --------------------------------------------------
-      # 8. Upload Trivy findings to GitHub Security
+      # 9. Upload Trivy findings to GitHub Security
       # --------------------------------------------------
       - name: Upload Trivy results
         if: always() && hashFiles('security-results/sarif/*.sarif') != ''
@@ -541,7 +541,7 @@ jobs:
           sarif_file: security-results/sarif/
 
       # --------------------------------------------------
-      # 9. Upload reports and artifacts
+      # 10. Upload reports and artifacts
       # --------------------------------------------------
       - name: Upload security reports and HTML summary
         if: always()
@@ -555,7 +555,7 @@ jobs:
           retention-days: 30
 
       # --------------------------------------------------
-      # 10. Enforce scan execution result
+      # 11. Enforce scan execution result
       # --------------------------------------------------
       - name: Validate security scan execution
         if: always()
