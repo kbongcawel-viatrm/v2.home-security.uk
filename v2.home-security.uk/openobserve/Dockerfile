@@ -2,10 +2,12 @@ ARG OPENOBSERVE_BASE_IMAGE=public.ecr.aws/zinclabs/openobserve:latest
 
 FROM ${OPENOBSERVE_BASE_IMAGE} AS openobserve
 
-FROM docker.io/library/python:3.12-slim
+FROM docker.io/library/python:3.12-slim-trixie
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates curl \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=openobserve /openobserve /openobserve
