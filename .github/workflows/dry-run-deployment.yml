@@ -280,7 +280,8 @@ jobs:
 
           build_args=(
             --layers
-            --file "$CONTEXT/Dockerfile"
+            --ignorefile "$CONTEXT/.containerignore" \
+            --file "$CONTEXT/Dockerfile" \
             --tag "$IMAGE"
           )
 
@@ -289,6 +290,7 @@ jobs:
               --layers \
               --cache-from "$CACHE_IMAGE" \
               --cache-to "$CACHE_IMAGE" \
+              --ignorefile "$CONTEXT/.containerignore" \
               --file "$CONTEXT/Dockerfile" \
               --tag "$IMAGE" \
               .; then
@@ -296,6 +298,7 @@ jobs:
               if ! podman build \
                 --layers \
                 --cache-to "$CACHE_IMAGE" \
+                --ignorefile "$CONTEXT/.containerignore" \
                 --file "$CONTEXT/Dockerfile" \
                 --tag "$IMAGE" \
                 .; then
