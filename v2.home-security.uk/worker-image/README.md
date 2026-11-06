@@ -4,7 +4,7 @@ This directory contains the Dockerfile for the shared worker image used by both 
 
 ## Overview
 
-The worker image is a Python 3.12 slim-based image that bundles both AI worker applications:
+The worker image is a Python 3.12 slim-trixie-based image that bundles both AI worker applications:
 
 - **security-ai** (`/app/security-ai/`) — Queries OpenObserve for security logs, sends them to Ollama for analysis, and writes review-only draft artifacts.
 - **ansible-ai** (`/app/ansible-ai/`) — Watches the security-ai manifest and generates deterministic, draft-only Ansible playbooks.
@@ -15,7 +15,7 @@ Both workers run as a non-root user (`app`, UID/GID 10001) and share the same ba
 
 | Attribute | Value |
 |---|---|
-| Base image | `docker.io/library/python:3.12-slim` |
+| Base image | `docker.io/library/python:3.12-slim-trixie` |
 | Runtime user | `app` (UID 10001, GID 10001) |
 | Working directory | `/app` |
 | Python packages | `openobserve-telemetry-sdk`, `PyYAML` |
@@ -36,19 +36,19 @@ From the **project root** (`v2.home-security.uk/`):
 
 ```bash
 # Build and tag as a local image
-podman build -f worker-image/Dockerfile -t demo.goharbor.io/home-security-uk/worker-template:1.3 .
+podman build -f worker-image/Dockerfile -t demo.goharbor.io/home-security-uk/worker-template:1.4 .
 
 # Verify the image was created
 podman images | grep worker-template
 
 # Inspect the image
-podman inspect demo.goharbor.io/home-security-uk/worker-template:1.3 --format '{{.Config.User}} {{.Config.WorkingDir}} {{.Config.Entrypoint}}'
+podman inspect demo.goharbor.io/home-security-uk/worker-template:1.4 --format '{{.Config.User}} {{.Config.WorkingDir}} {{.Config.Entrypoint}}'
 ```
 
 With Docker:
 
 ```bash
-docker build -f worker-image/Dockerfile -t demo.goharbor.io/home-security-uk/worker-template:1.3 .
+docker build -f worker-image/Dockerfile -t demo.goharbor.io/home-security-uk/worker-template:1.4 .
 docker images | grep worker-template
 ```
 
@@ -64,7 +64,7 @@ docker images | grep worker-template
 Example with no cache:
 
 ```bash
-podman build --no-cache -f worker-image/Dockerfile -t demo.goharbor.io/home-security-uk/worker-template:1.3 .
+podman build --no-cache -f worker-image/Dockerfile -t demo.goharbor.io/home-security-uk/worker-template:1.4 .
 ```
 
 ## Versioning
@@ -74,7 +74,8 @@ The image is tagged with semantic versioning:
 | Tag | Description |
 |---|---|
 | `1.2` | Original worker image (Suricata EVE/text, auditd, AIDE, host journal) |
-| `1.3` | Added support for Suricata `fast.log`, ClamAV scan logs (`clamav-scan.log`, `clamav-secureblue-scan.log`) |
+| `1.3` | Added support for Suricata `fast.log`, ClamAV scan logs (`clamav-scan.log`, `clamav-secureblue-scan.log`)
+| `1.4` | Refreshes Debian 13 security packages and updates the Python build base; run Trivy against the rebuilt image before rollout |
 
 To release a new version:
 
@@ -101,10 +102,10 @@ If you need to push the image to a remote registry (e.g., Harbor at `demo.goharb
 podman login demo.goharbor.io
 
 # Tag for the remote registry (if not already tagged)
-podman tag demo.goharbor.io/home-security-uk/worker-template:1.3 demo.goharbor.io/home-security-uk/worker-template:1.3
+podman tag demo.goharbor.io/home-security-uk/worker-template:1.4 demo.goharbor.io/home-security-uk/worker-template:1.4
 
 # Push
-podman push demo.goharbor.io/home-security-uk/worker-template:1.3
+podman push demo.goharbor.io/home-security-uk/worker-template:1.4
 ```
 
 > **Note:** The Compose file uses `pull_policy: never`, so the image must exist locally. If you push to a remote registry and want to use the remote image, change `pull_policy` to `always` or remove it.
@@ -145,11 +146,11 @@ Ensure you are running the build from the **project root**, not from the `worker
 ```bash
 # Correct — run from project root
 cd /var/home/kb/workspace/home-security/v2.home-security.uk
-podman build -f worker-image/Dockerfile -t demo.goharbor.io/home-security-uk/worker-template:1.3 .
+podman build -f worker-image/Dockerfile -t demo.goharbor.io/home-security-uk/worker-template:1.4 .
 
 # Incorrect — will fail because security-ai/ and ansible-ai/ are not in worker-image/
 cd worker-image
-podman build -t demo.goharbor.io/home-security-uk/worker-template:1.3 .
+podman build -t demo.goharbor.io/home-security-uk/worker-template:1.4 .
 ```
 
 ### Image is large
