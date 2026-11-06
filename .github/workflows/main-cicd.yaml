@@ -41,3 +41,12 @@ jobs:
       needs.staging-deployment.result == 'success'
     uses: ./.github/workflows/prd-deployment.yml
     secrets: inherit
+
+  done:
+    name: Done / Success
+    needs: production-deployment
+    if: needs.production-deployment.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report successful pipeline
+        run: echo "Security scan, staging deployment, and production deployment completed successfully."
