@@ -2,7 +2,6 @@ name: Production
 
 on:
   workflow_call:
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -205,6 +204,8 @@ jobs:
           fi
 
           podman build \
+            --pull=always \
+            --no-cache \
             --file "$CONTEXT/Dockerfile" \
             --tag "$IMAGE" \
             .
