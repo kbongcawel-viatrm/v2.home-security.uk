@@ -269,7 +269,7 @@ jobs:
           cat "$RESULTS_DIR/images.txt"
          
       # --------------------------------------------------
-      # 6. Scan every image with Trivy
+      # 7. Scan every image with Trivy
       # --------------------------------------------------
       - name: Scan container images
         id: scan-images
@@ -322,7 +322,7 @@ jobs:
           done < "$RESULTS_DIR/images.txt"
 
       # --------------------------------------------------
-      # 7. Generate HTML and Markdown security summaries
+      # 8. Generate HTML and Markdown security summaries
       # --------------------------------------------------
       - name: Generate security reports
         if: always()
@@ -567,7 +567,7 @@ jobs:
           cat security-results/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       # --------------------------------------------------
-      # 8. Upload Gitleaks findings to GitHub Security
+      # 9. Upload Gitleaks findings to GitHub Security
       # --------------------------------------------------
       - name: Upload Gitleaks results
         if: always() && hashFiles('results.sarif') != ''
@@ -577,7 +577,7 @@ jobs:
           category: gitleaks
 
       # --------------------------------------------------
-      # 9. Upload Trivy findings to GitHub Security
+      # 10. Upload Trivy findings to GitHub Security
       # --------------------------------------------------
       - name: Upload Trivy results
         if: always() && hashFiles('security-results/sarif/*.sarif') != ''
@@ -586,7 +586,7 @@ jobs:
           sarif_file: security-results/sarif/
 
       # --------------------------------------------------
-      # 10. Upload reports and artifacts
+      # 11. Upload reports and artifacts
       # --------------------------------------------------
       - name: Upload security reports and HTML summary
         if: always()
@@ -600,7 +600,7 @@ jobs:
           retention-days: 30
 
       # --------------------------------------------------
-      # 11. Enforce scan execution result
+      # 12. Enforce scan execution result
       # --------------------------------------------------
       - name: Validate security scan execution
         if: always()
