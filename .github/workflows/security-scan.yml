@@ -37,10 +37,16 @@ jobs:
       # --------------------------------------------------
       # 2. Upgrade pip on the GitHub Actions runner
       # --------------------------------------------------
-      - name: Upgrade pip
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.15.2'
+
+      - name: Install/Upgrade needed dependencies
         shell: bash
         run: |
           set -euo pipefail
+
           python -m pip install --upgrade pip
           python -m pip --version
 
