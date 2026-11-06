@@ -53,9 +53,10 @@ jobs:
       # --------------------------------------------------
       # 3. Install Trivy
       # --------------------------------------------------
-      - name: Set up Trivy
-        uses: aquasecurity/setup-trivy@v0.2.0
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@v0.3.1
         with:
+          version: v0.76.2
           cache: true
 
       # --------------------------------------------------
