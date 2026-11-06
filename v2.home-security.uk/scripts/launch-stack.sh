@@ -488,62 +488,109 @@ pause() {
     read -r _
 }
 
+usage() {
+    printf 'Usage: %s [0-7]\n' "${0##*/}" >&2
+    printf '\nWithout an argument, the interactive menu is displayed.\n' >&2
+}
+
+execute_choice() {
+    local choice="$1"
+    local interactive="$2"
+    local confirm
+    local rc=0
+
+    case "$choice" in
+        1)
+            start_stack start || rc=$?
+            ;;
+        2)
+            read -r -p "Stop all project containers? [y/N]: " confirm
+            if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                run_compose down || rc=$?
+            else
+                warn "Stop operation cancelled."
+            fi
+            ;;
+        3)
+            start_stack restart || rc=$?
+            ;;
+        4)
+            show_status || rc=$?
+            ;;
+        5)
+            log "Following container logs. Press Ctrl+C to stop viewing."
+            run_compose logs -f || rc=$?
+            ;;
+        6)
+            get_memory || rc=$?
+            ;;
+        7)
+            init_sync_watch_logs || rc=$?
+            ;;
+        0)
+            success "Exiting container manager."
+            return 0
+            ;;
+        *)
+            error "Invalid option: $choice"
+            return 2
+            ;;
+    esac
+
+    if [[ "$interactive" == "true" ]]; then
+        pause
+    fi
+
+    return "$rc"
+}
+
 main() {
     local choice
 
-    check_dependencies || exit 1
+    if (( $# > 1 )); then
+        usage
+        return 2
+    fi
 
+    if (( $# == 1 )); then
+        case "$1" in
+            [0-7]) ;;
+            *)
+                usage
+                error "Invalid option: $1 (expected 0-7)."
+                return 2
+                ;;
+        esac
+    fi
+
+    check_dependencies || return 1
+
+    # A supplied option executes once and exits without entering the menu.
+    if (( $# == 1 )); then
+        execute_choice "$1" false
+        return $?
+    fi
+
+    # No argument: retain the interactive menu.
     while true; do
         show_banner
         show_menu
 
-        read -r -p "$(printf "${CYAN}Select option [0-7]: ${RESET}")" choice
+        if ! read -r -p "$(printf "${CYAN}Select option [0-7]: ${RESET}")" choice; then
+            printf '\n'
+            return 0
+        fi
 
-        case "$choice" in
-            1)
-                start_stack start
-                pause
-                ;;
-            2)
-		read -r -p "Stop all project containers? [y/N]: " confirm
-                if [[ "$confirm" =~ ^[Yy]$ ]]; then
-                    run_compose down
-                else
-                    warn "Stop operation cancelled."
-                fi
-                pause
-                ;;
-            3)
-                start_stack restart
-                pause
-                ;;
-            4)
-                show_status
-                pause
-                ;;
-            5)
-                log "Following container logs. Press Ctrl+C to stop viewing."
-                run_compose logs -f
-                pause
-                ;;
-            6)
-		get_memory
-                pause
-                ;;
-            7)
-                init_sync_watch_logs
-                pause
-                ;;
-                
-            0)
-                success "Exiting container manager."
-                exit 0
-                ;;
-            *)
-                error "Invalid option."
+        if [[ "$choice" == "0" ]]; then
+            execute_choice "$choice" true
+            return $?
+        fi
+
+        execute_choice "$choice" true || {
+            if [[ ! "$choice" =~ ^[1-7]$ ]]; then
                 sleep 1
-                ;;
-        esac
+            fi
+        }
     done
 }
 
