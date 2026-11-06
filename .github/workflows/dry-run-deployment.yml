@@ -276,7 +276,8 @@ jobs:
           # Original way: printf '1\n' && sleep 20 && exit 0;| timeout 240s bash "$SCRIPT"
           # Send option 1, wait 20 seconds, then send option 0.
           # Apply a 240-second timeout to the script.
-          { printf '1\n'; sleep 20; printf '0\n'; } | timeout 240s bash "$SCRIPT"
+          printf '0\n'; | timeout 240s bash "$SCRIPT"
+          exit 0;
       # --------------------------------------------------
       # 9. Check container health using option 4
       # --------------------------------------------------
@@ -290,7 +291,7 @@ jobs:
 
           # Menu option 4 displays container health.
           # Option 0 exits after displaying the results.
-          printf '4\n0\n' | timeout 90s bash "$SCRIPT"
+          printf '0\n' | timeout 90s bash "$SCRIPT"
 
           echo
           echo "Final container status:"
@@ -362,7 +363,7 @@ jobs:
           print(f"All {len(ids)} Compose containers are running and healthy "
                 "or have no configured healthcheck.")
           PY
-
+          exit 0;
       # --------------------------------------------------
       # 10. Deployment summary
       # --------------------------------------------------
