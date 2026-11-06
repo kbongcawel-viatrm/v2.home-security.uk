@@ -25,6 +25,11 @@ permissions:
   actions: read
   security-events: write
 
+concurrency:
+  group: home-security-stack-deployment
+  cancel-in-progress: false
+  queue: max
+  
 jobs:
   security-scan:
     name: Secret and Container Image Scan
