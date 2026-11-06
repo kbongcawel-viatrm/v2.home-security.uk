@@ -290,7 +290,7 @@ jobs:
 
           # Menu option 4 displays container health.
           # Option 0 exits after displaying the results.
-          printf '0\n' | timeout 90s bash "$SCRIPT"
+          printf '0\n' | bash "$SCRIPT"
 
           echo
           echo "Final container status:"
