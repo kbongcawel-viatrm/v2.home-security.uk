@@ -85,26 +85,22 @@ jobs:
           # Pull external images.
           docker compose -f "$COMPOSE_FILE" pull --ignore-buildable
 
-          # Build all services with build configurations.
+          # Build images declared by Compose.
           docker compose -f "$COMPOSE_FILE" build --pull
 
-          # Explicitly build worker-image.
-          WORKER_IMAGE="local/worker-image:${GITHUB_SHA}"
-
-          docker build --pull \
-            --tag "$WORKER_IMAGE" \
-            v2.home-security.uk/worker-image
-
-          # Discover every image defined in Compose.
+          # Discover all images declared by Compose.
           docker compose -f "$COMPOSE_FILE" config --images \
             | sort -u > "$RESULTS_DIR/images.txt"
 
-          # Include the explicitly built worker image.
-          printf '%s\n' "$WORKER_IMAGE" >> "$RESULTS_DIR/images.txt"
+          # Build the separate worker image when its Dockerfile exists.
+          WORKER_CONTEXT="v2.home-security.uk/worker-image"
+          if [[ -f "$WORKER_CONTEXT/Dockerfile" ]]; then
+            WORKER_IMAGE="local/worker-image:${GITHUB_SHA}"
+            docker build --pull --tag "$WORKER_IMAGE" "$WORKER_CONTEXT"
+            printf '%s\\n' "$WORKER_IMAGE" >> "$RESULTS_DIR/images.txt"
+          fi
 
-          sort -u -o \
-            "$RESULTS_DIR/images.txt" \
-            "$RESULTS_DIR/images.txt"
+          sort -u -o "$RESULTS_DIR/images.txt" "$RESULTS_DIR/images.txt"
 
           if [[ ! -s "$RESULTS_DIR/images.txt" ]]; then
             echo "::error::No container images were discovered."
