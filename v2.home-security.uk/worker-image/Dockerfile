@@ -12,7 +12,7 @@ RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir --upgrade pip setuptools \
     && python -m pip install --no-cache-dir \
        openobserve-telemetry-sdk \
        PyYAML
