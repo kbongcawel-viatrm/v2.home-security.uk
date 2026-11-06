@@ -1,4 +1,4 @@
-name: Staging Deployment
+name: Staging
 
 on:
   workflow_call:
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Build, Validate and Deploy
+    name: Deployment
     # The orchestrator gates this reusable workflow; manual runs are main-only.
     if: github.ref == 'refs/heads/main'
 
