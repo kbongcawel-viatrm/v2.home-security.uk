@@ -31,7 +31,7 @@ jobs:
       # 1. Checkout repository
       # --------------------------------------------------
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       
@@ -39,14 +39,14 @@ jobs:
       # 2. Setup Node.js LTS
       # --------------------------------------------------
       - name: Setup Node.js LTS
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: lts/*
       # --------------------------------------------------
       # 2. Upgrade pip on the GitHub Actions runner
       # --------------------------------------------------
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.15.2'
      
@@ -64,7 +64,7 @@ jobs:
       # --------------------------------------------------
       - name: Run Gitleaks secret detection
         id: gitleaks
-        uses: gitleaks/gitleaks-action@v3
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -78,7 +78,7 @@ jobs:
       # 4. Install Trivy
       # --------------------------------------------------
       - name: Setup Trivy
-        uses: aquasecurity/setup-trivy@v0.3.1
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
         with:
           version: v0.76.2
           cache: true
@@ -87,10 +87,10 @@ jobs:
       # 5. Configure BuildKit caching for container builds
       # --------------------------------------------------
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Set up Docker Compose
-        uses: docker/setup-compose-action@v2
+        uses: docker/setup-compose-action@54042514f505b273907334ae2b9cdbb9a0213c1a # v2
         with:
           version: latest
 
@@ -577,7 +577,7 @@ jobs:
       # --------------------------------------------------
       - name: Upload Gitleaks results
         if: always() && hashFiles('results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           sarif_file: results.sarif
           category: gitleaks
@@ -587,7 +587,7 @@ jobs:
       # --------------------------------------------------
       - name: Upload Trivy results
         if: always() && hashFiles('security-results/sarif/*.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           sarif_file: security-results/sarif/
 
@@ -596,7 +596,7 @@ jobs:
       # --------------------------------------------------
       - name: Upload security reports and HTML summary
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: security-scan-${{ github.run_number }}
           path: |
