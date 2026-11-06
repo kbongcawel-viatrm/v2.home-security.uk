@@ -2,6 +2,7 @@
 name: Deploy Home Security Stack V2 (Dry-run)
 
 on:
+  workflow_dispatch: 
   workflow_run:
     workflows:
       - Security Scan
