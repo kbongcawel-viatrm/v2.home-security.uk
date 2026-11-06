@@ -10,12 +10,6 @@ on:
   schedule:
     - cron: "0 2 * * 1"
   workflow_dispatch:
-      inputs:
-         skip_scan:
-           description: "Skip scan and mark as successful?"
-           type: boolean
-           required: false
-           default: false
 
 permissions:
   contents: read
@@ -32,10 +26,6 @@ jobs:
     name: check
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    ##########################################################################################
-    ## ** This skips the job execution if the checkbox is checked, marking it successful ** ##
-    ##########################################################################################
-    if: ${{ github.event.inputs.skip_scan != 'true' }}
     steps:
       # --------------------------------------------------
       # 1. Checkout repository
@@ -242,16 +232,15 @@ jobs:
           done < "$RESULTS_DIR/pull-images.txt"
 
           # Build services that declare a Compose build context.
-          "${COMPOSE[@]}" build --pull
+          "${COMPOSE[@]}" build --pull --no-cache
 
           # Build the worker image using the exact tag referenced by Compose.
           WORKER_DOCKERFILE="$APP_DIR/worker-image/Dockerfile"
           if [[ -f "$WORKER_DOCKERFILE" ]]; then
             docker buildx build \
               --pull \
+              --no-cache \
               --load \
-              --cache-from "type=gha,scope=worker-template" \
-              --cache-to "type=gha,mode=max,scope=worker-template,ignore-error=true" \
               --file "$WORKER_DOCKERFILE" \
               --tag "$WORKER_IMAGE" \
               "$APP_DIR"
