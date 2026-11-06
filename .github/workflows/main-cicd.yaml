@@ -1,0 +1,38 @@
+name: Main CI/CD Orchestration
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: main-cicd-${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  security-scan:
+    name: Run security scan
+    uses: ./.github/workflows/security-scan.yml
+
+  staging-deployment:
+    name: Deploy to staging
+    needs: security-scan
+    if: needs.security-scan.result == 'success'
+    uses: ./.github/workflows/stg-deployment.yml
+
+  production-deployment:
+    name: Deploy to production
+    needs:
+      - security-scan
+      - staging-deployment
+    if: >-
+      always() &&
+      needs.security-scan.result == 'success' &&
+      needs.staging-deployment.result == 'success'
+    uses: ./.github/workflows/prd-deployment.yml
