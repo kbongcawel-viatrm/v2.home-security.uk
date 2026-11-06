@@ -196,7 +196,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          IMAGE="demo.goharbor.io/home-security-uk/worker-template:1.3"
+          IMAGE="demo.goharbor.io/home-security-uk/worker-template:1.4"
           CONTEXT="./worker-image"
 
           if [[ ! -f "$CONTEXT/Dockerfile" ]]; then

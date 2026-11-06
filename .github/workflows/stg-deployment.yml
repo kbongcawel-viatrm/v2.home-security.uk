@@ -256,7 +256,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          IMAGE="demo.goharbor.io/home-security-uk/worker-template:1.3"
+          IMAGE="demo.goharbor.io/home-security-uk/worker-template:1.4"
           CONTEXT="./worker-image"
           CACHE_IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}-worker-template-cache"
 
@@ -319,7 +319,7 @@ jobs:
           chmod +x "$SCRIPT"
 
           # Use the script's CLI mode; avoid interactive stdin/menu handling in CI.
-          timeout 240s bash "$SCRIPT" 1
+          bash "$SCRIPT" 1 -- && exit 0 || exit 1
       # --------------------------------------------------
       # 10. Check container health using option 4
       # --------------------------------------------------
