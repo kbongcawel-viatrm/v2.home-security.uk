@@ -110,11 +110,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          POLICY_SOURCE="./container-policy.json"
+          POLICY_SOURCE="./containers-policy.json"
           POLICY_DESTINATION="$HOME/.config/containers/policy.json"
 
           if [ ! -f "$POLICY_SOURCE" ]; then
-            echo "::error::container-policy.json not found."
+            echo "::error::containers-policy.json not found."
             exit 1
           fi
 
