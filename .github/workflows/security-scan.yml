@@ -13,6 +13,12 @@ on:
   schedule:
     - cron: "0 2 * * 1"
   workflow_dispatch:
+      inputs:
+         skip_scan:
+           description: "Skip scan and mark as successful?"
+           type: boolean
+           required: false
+           default: false
 
 permissions:
   contents: read
@@ -24,7 +30,10 @@ jobs:
     name: Secret and Container Image Scan
     runs-on: ubuntu-latest
     timeout-minutes: 45
-
+    ##########################################################################################
+    ## ** This skips the job execution if the checkbox is checked, marking it successful ** ##
+    ##########################################################################################
+    if: ${{ github.event.inputs.skip_scan != 'true' }}
     steps:
       # --------------------------------------------------
       # 1. Checkout repository
