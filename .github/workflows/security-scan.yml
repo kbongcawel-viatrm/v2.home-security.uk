@@ -68,7 +68,9 @@ jobs:
           set -euo pipefail
 
           COMPOSE_FILE="v2.home-security.uk/compose.yaml"
+          APP_DIR="v2.home-security.uk"
           RESULTS_DIR="security-results"
+          WORKER_IMAGE="demo.goharbor.io/home-security-uk/worker-template:1.3"
 
           mkdir -p \
             "$RESULTS_DIR/json" \
@@ -79,33 +81,81 @@ jobs:
             exit 1
           fi
 
-          # Validate Compose configuration.
+          # Compose requires these values even though CI only builds and scans.
+          # They are deliberately non-production placeholders, not GitHub secrets.
+          export OPENOBSERVE_USER="ci-security-scan@example.invalid"
+          export OPENOBSERVE_PASSWORD="ci-only-not-a-real-password"
+
+          # Validate interpolation and render the resolved Compose model.
           docker compose -f "$COMPOSE_FILE" config --quiet
+          CONFIG_JSON="$(mktemp)"
+          trap 'rm -f "$CONFIG_JSON"' EXIT
+          docker compose -f "$COMPOSE_FILE" config --format json > "$CONFIG_JSON"
 
-          # Pull external images.
-          docker compose -f "$COMPOSE_FILE" pull --ignore-buildable
+          # Pull registry images explicitly. Compose pull policies are intended
+          # for runtime behavior; CI must ensure every scan target is local.
+          python3 - "$CONFIG_JSON" "$RESULTS_DIR/pull-images.txt" "$WORKER_IMAGE" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
 
-          # Build images declared by Compose.
+          config_path, output_path, worker_image = sys.argv[1:]
+          config = json.loads(Path(config_path).read_text())
+          images_to_pull = set()
+
+          for service in config.get("services", {}).values():
+              image = service.get("image")
+              if not image:
+                  continue
+              if service.get("build") is not None:
+                  continue
+              if image == worker_image:
+                  continue
+              images_to_pull.add(image)
+
+          Path(output_path).write_text(
+              "".join(f"{image}\n" for image in sorted(images_to_pull))
+          )
+          PY
+
+          while IFS= read -r image; do
+            [[ -n "$image" ]] || continue
+            echo "Pulling external image: $image"
+            docker pull "$image"
+          done < "$RESULTS_DIR/pull-images.txt"
+
+          # Build services that declare a Compose build context.
           docker compose -f "$COMPOSE_FILE" build --pull
 
-          # Discover all images declared by Compose.
-          docker compose -f "$COMPOSE_FILE" config --images \
-            | sort -u > "$RESULTS_DIR/images.txt"
-
-          # Build the separate worker image when its Dockerfile exists.
-          WORKER_CONTEXT="v2.home-security.uk/worker-image"
-          if [[ -f "$WORKER_CONTEXT/Dockerfile" ]]; then
-            WORKER_IMAGE="local/worker-image:${GITHUB_SHA}"
-            docker build --pull --tag "$WORKER_IMAGE" "$WORKER_CONTEXT"
-            printf '%s\\n' "$WORKER_IMAGE" >> "$RESULTS_DIR/images.txt"
+          # Build the worker image using the exact tag referenced by Compose.
+          WORKER_DOCKERFILE="$APP_DIR/worker-image/Dockerfile"
+          if [[ -f "$WORKER_DOCKERFILE" ]]; then
+            docker build \
+              --pull \
+              --file "$WORKER_DOCKERFILE" \
+              --tag "$WORKER_IMAGE" \
+              "$APP_DIR"
+          else
+            echo "::error::Worker Dockerfile not found: $WORKER_DOCKERFILE"
+            exit 1
           fi
 
-          sort -u -o "$RESULTS_DIR/images.txt" "$RESULTS_DIR/images.txt"
+          # Discover the final Compose image set and verify every image exists.
+          docker compose -f "$COMPOSE_FILE" config --images \
+            | sort -u > "$RESULTS_DIR/images.txt"
 
           if [[ ! -s "$RESULTS_DIR/images.txt" ]]; then
             echo "::error::No container images were discovered."
             exit 1
           fi
+
+          while IFS= read -r image; do
+            [[ -n "$image" ]] || continue
+            if ! docker image inspect "$image" >/dev/null 2>&1; then
+              echo "::error::Image is missing locally after preparation: $image"
+              exit 1
+            fi
+          done < "$RESULTS_DIR/images.txt"
 
           echo "Images queued for scanning:"
           cat "$RESULTS_DIR/images.txt"
