@@ -29,7 +29,7 @@ concurrency:
   
 jobs:
   security-scan:
-    name: Security check
+    name: Check
     runs-on: ubuntu-latest
     timeout-minutes: 45
     ##########################################################################################
