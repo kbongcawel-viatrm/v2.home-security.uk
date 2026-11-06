@@ -119,7 +119,7 @@ jobs:
           COMPOSE_FILE="v2.home-security.uk/compose.yaml"
           APP_DIR="v2.home-security.uk"
           RESULTS_DIR="security-results"
-          WORKER_IMAGE="demo.goharbor.io/home-security-uk/worker-template:1.3"
+          WORKER_IMAGE="demo.goharbor.io/home-security-uk/worker-template:1.4"
 
           mkdir -p \
             "$RESULTS_DIR/json" \
