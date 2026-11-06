@@ -33,7 +33,14 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
+      
+      # --------------------------------------------------
+      # 2. Setup Node.js LTS
+      # --------------------------------------------------
+      - name: Setup Node.js LTS
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
       # --------------------------------------------------
       # 2. Upgrade pip on the GitHub Actions runner
       # --------------------------------------------------
@@ -41,7 +48,7 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.15.2'
-
+     
       - name: Install/Upgrade needed dependencies
         shell: bash
         run: |
@@ -85,7 +92,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
+          echo "::group::Show logs"
           COMPOSE_FILE="v2.home-security.uk/compose.yaml"
           APP_DIR="v2.home-security.uk"
           RESULTS_DIR="security-results"
@@ -226,10 +233,10 @@ jobs:
               exit 1
             fi
           done < "$RESULTS_DIR/images.txt"
-
+          echo "::endgroup::"
           echo "Images queued for scanning:"
           cat "$RESULTS_DIR/images.txt"
-
+         
       # --------------------------------------------------
       # 6. Scan every image with Trivy
       # --------------------------------------------------
@@ -238,7 +245,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-
+          echo "::group::Show logs"
           RESULTS_DIR="security-results"
 
           : > "$RESULTS_DIR/scan-errors.txt"
@@ -276,11 +283,11 @@ jobs:
               --format sarif \
               --output "$RESULTS_DIR/sarif/${IMAGE_ID}.sarif" \
               "$image"; then
-
+             
               echo "$image (SARIF scan failed)" \
                 >> "$RESULTS_DIR/scan-errors.txt"
             fi
-
+          echo "::endgroup::"  
           done < "$RESULTS_DIR/images.txt"
 
       # --------------------------------------------------
@@ -290,6 +297,7 @@ jobs:
         if: always()
         shell: bash
         run: |
+          echo "::group::Show logs"
           python3 - <<'PY'
           import html
           import json
@@ -524,7 +532,7 @@ jobs:
               "\n".join(markdown) + "\n"
           )
           PY
-
+          echo "::endgroup::"
           cat security-results/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       # --------------------------------------------------
@@ -572,7 +580,7 @@ jobs:
           TRIVY_OUTCOME: ${{ steps.scan-images.outcome }}
         run: |
           set -euo pipefail
-
+          
           failed=0
 
           for result in \
