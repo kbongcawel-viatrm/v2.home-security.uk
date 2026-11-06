@@ -2,14 +2,8 @@
 name: Deploy Home Security Stack V2 (stg)
 
 on:
-  workflow_dispatch: 
-  workflow_run:
-    workflows:
-      - Security Scan
-    types:
-      - completed
-    branches:
-      - main
+  workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read
