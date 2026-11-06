@@ -574,6 +574,11 @@ jobs:
           (root / "summary.md").write_text(
               "\n".join(markdown) + "\n"
           )
+
+          # Export machine-readable severity totals for the enforcement step.
+          (root / "severity-totals.json").write_text(
+              json.dumps(totals, sort_keys=True) + "\\n"
+          )
           PY
           echo "::endgroup::"
           cat security-results/summary.md >> "$GITHUB_STEP_SUMMARY"
@@ -642,6 +647,20 @@ jobs:
           if [[ -s security-results/scan-errors.txt ]]; then
             echo "::error::One or more image scans failed."
             cat security-results/scan-errors.txt
+            failed=1
+          fi
+
+          if [[ -f security-results/severity-totals.json ]]; then
+            critical="$(python3 -c 'import json; print(json.load(open("security-results/severity-totals.json")).get("CRITICAL", 0))')"
+            high="$(python3 -c 'import json; print(json.load(open("security-results/severity-totals.json")).get("HIGH", 0))')"
+            echo "CRITICAL findings: $critical"
+            echo "HIGH findings: $high"
+            if (( critical > 0 || high > 0 )); then
+              echo "::error::Container scan found $critical CRITICAL and $high HIGH vulnerabilities."
+              failed=1
+            fi
+          else
+            echo "::error::Severity summary is missing; refusing to pass the security gate."
             failed=1
           fi
 
