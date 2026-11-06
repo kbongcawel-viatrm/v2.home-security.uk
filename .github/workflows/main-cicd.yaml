@@ -19,19 +19,19 @@ concurrency:
 
 jobs:
   security-scan:
-    name: Run security scan
+    name: Scan
     uses: ./.github/workflows/security-scan.yml
     secrets: inherit
 
   staging-deployment:
-    name: Deploy to staging
+    name: stg
     needs: security-scan
     if: needs.security-scan.result == 'success'
     uses: ./.github/workflows/stg-deployment.yml
     secrets: inherit
 
   production-deployment:
-    name: Deploy to production
+    name: prd
     needs:
       - security-scan
       - staging-deployment
