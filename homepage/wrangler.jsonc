@@ -14,7 +14,7 @@
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "home-security-homepage",
+  "name": "v2-home-security-uk",
   "main": "worker/index.js",
   "compatibility_date": "2025-11-01",
   "workers_dev": true,
