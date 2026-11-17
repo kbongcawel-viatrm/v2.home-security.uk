@@ -4,6 +4,9 @@
   ],
   "transports": {
     "containers-storage": {
+      "": [
+        { "type": "insecureAcceptAnything" }
+      ],
       "[overlay@/var/home/kim/.local/share/containers/storage+/run/user/1000/containers]": [
         { "type": "insecureAcceptAnything" }
       ],
@@ -40,6 +43,21 @@
         { "type": "insecureAcceptAnything" }
       ],
       "localhost/*": [
+        { "type": "insecureAcceptAnything" }
+      ]
+    },
+    "docker-archive": {
+      "": [
+        { "type": "insecureAcceptAnything" }
+      ]
+    },
+    "oci-archive": {
+      "": [
+        { "type": "insecureAcceptAnything" }
+      ]
+    },
+    "oci": {
+      "": [
         { "type": "insecureAcceptAnything" }
       ]
     }

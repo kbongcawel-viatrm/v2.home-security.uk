@@ -188,7 +188,7 @@ podman-compose -f compose.yaml config
 Start the services:
 
 ```bash
-CONTAINERS_POLICY_JSON="$PWD/containers-policy.json" podman build --signature-policy "$PWD/containers-policy.json" -t demo.goharbor.io/home-security-uk/worker-template:1.2 -f worker-image/Dockerfile .
+CONTAINERS_POLICY_JSON="$PWD/containers-policy.json" podman build --signature-policy "$PWD/containers-policy.json" -t demo.goharbor.io/home-security-uk/worker-template:1.3 -f worker-image/Dockerfile .
 podman-compose -f compose.yaml up -d --no-build
 ```
 
