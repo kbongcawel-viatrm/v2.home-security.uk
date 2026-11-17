@@ -1,7 +1,8 @@
 /**
  * Cloudflare Workers configuration for the v2.home-security.uk homepage.
  *
- * Static-assets-only Worker: no script, no bindings. `wrangler deploy` from
+ * Static-assets Worker with a minimal entry point (worker/index.js) that
+ * serves files from ./ via env.ASSETS.fetch(). `wrangler deploy` from
  * homepage/ uploads every file here except those listed in `.assetsignore`
  * (repo documentation) and the Wrangler config itself (always excluded).
  *
@@ -14,6 +15,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "home-security-homepage",
+  "main": "worker/index.js",
   "compatibility_date": "2025-11-01",
   "assets": {
     "directory": ".",

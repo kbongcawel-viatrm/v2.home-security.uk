@@ -1,0 +1,13 @@
+{
+  "name": "home-security-homepage",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Home Security AI homepage — static assets served via Cloudflare Workers",
+  "devDependencies": {
+    "wrangler": "^4.163.0"
+  },
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dry-run": "wrangler deploy --dry-run"
+  }
+}
