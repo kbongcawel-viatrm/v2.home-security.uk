@@ -1,0 +1,39 @@
+name: Homepage Deployment
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "homepage/**"
+      - ".github/workflows/homepage-deployment.yml"
+
+# Deny all token permissions by default; the deploy step authenticates to
+# Cloudflare with its own API token, not the GitHub token.
+permissions: {}
+
+concurrency:
+  group: homepage-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy homepage to Cloudflare Workers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Deploy static assets to Cloudflare Workers
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: homepage
+          command: deploy

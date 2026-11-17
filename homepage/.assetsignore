@@ -1,0 +1,5 @@
+# Files excluded from the Cloudflare Workers asset upload.
+# Site content only: index.html, styles.css, script.js, assets/.
+README.md
+wrangler.jsonc
+.assetsignore

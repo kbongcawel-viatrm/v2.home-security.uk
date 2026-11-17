@@ -1,0 +1,26 @@
+/**
+ * Cloudflare Workers configuration for the v2.home-security.uk homepage.
+ *
+ * Static-assets-only Worker: no script, no bindings. `wrangler deploy` from
+ * homepage/ uploads every file here except those listed in `.assetsignore`
+ * (repo documentation) and the Wrangler config itself (always excluded).
+ *
+ * Deployed by .github/workflows/deploy-homepage.yml, which requires the
+ * GitHub secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
+ *
+ * The custom_domain route attaches the Worker to v2.home-security.uk in the
+ * home-security.uk zone; Wrangler provisions the DNS record on first deploy.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "home-security-homepage",
+  "compatibility_date": "2025-11-01",
+  "assets": {
+    "directory": ".",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none"
+  },
+  "routes": [
+    { "pattern": "v2.home-security.uk", "custom_domain": true }
+  ]
+}
