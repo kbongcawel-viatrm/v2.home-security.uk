@@ -22,8 +22,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      CF_API_KEY: ${{ secrets.CF_API_KEY }}
-      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,10 +42,10 @@ jobs:
         run: npx --yes wrangler@4 deploy --dry-run --config wrangler.jsonc
 
       - name: Explain missing Cloudflare credential
-        if: ${{ env.CF_API_KEY == '' }}
+        if: ${{ env.CLOUDFLARE_API_KEY == '' }}
         run: echo "::notice::Add the CF_API_KEY repository secret to enable production deployment."
 
       - name: Deploy Worker and static assets
-        if: ${{ env.CF_API_KEY != '' }}
+        if: ${{ env.CLOUDFLARE_API_KEY != '' }}
         working-directory: homepage
         run: npx --yes wrangler@4 deploy --config wrangler.jsonc
