@@ -43,7 +43,7 @@ jobs:
 
       - name: Explain missing Cloudflare credential
         if: ${{ env.CLOUDFLARE_API_KEY == '' }}
-        run: echo "::notice::Add the CF_API_KEY repository secret to enable production deployment."
+        run: echo "::notice::Add the CLOUDFLARE_API_KEY repository secret to enable production deployment."
 
       - name: Deploy Worker and static assets
         if: ${{ env.CLOUDFLARE_API_KEY != '' }}
