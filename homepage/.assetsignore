@@ -3,3 +3,7 @@
 README.md
 wrangler.jsonc
 .assetsignore
+package.json
+package-lock.json
+node_modules/
+dist/

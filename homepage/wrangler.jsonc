@@ -17,10 +17,14 @@
   "name": "home-security-homepage",
   "main": "worker/index.js",
   "compatibility_date": "2025-11-01",
+  "workers_dev": true,
+  "preview_urls": false,
   "assets": {
     "directory": ".",
+    "binding": "ASSETS",
     "html_handling": "auto-trailing-slash",
-    "not_found_handling": "none"
+    "not_found_handling": "none",
+    "run_worker_first": false
   },
   "routes": [
     { "pattern": "v2.home-security.uk", "custom_domain": true }
