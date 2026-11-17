@@ -1,6 +1,6 @@
 name: Build and deploy homepage to Cloudflare Workers
 
-# Production deployment is gated by the repository CF_API_TOKEN and CF_ACCOUNT_ID secrets.
+# Production deployment is gated by the repository CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID secrets.
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_KEY }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Checkout
@@ -43,9 +43,9 @@ jobs:
 
       - name: Explain missing Cloudflare credential
         if: ${{ env.CLOUDFLARE_API_TOKEN == '' }}
-        run: echo "::notice::Add the CLOUDFLARE_API_TOKEN repository secret to enable production deployment."
+        run: echo "::notice::Add the CLOUDFLARE_API_KEY repository secret to enable production deployment."
 
       - name: Deploy Worker and static assets
-        if: ${{ env.CLOUDFLARE_API_KEY != '' }}
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
         working-directory: homepage
         run: npx --yes wrangler@4 deploy --config wrangler.jsonc
