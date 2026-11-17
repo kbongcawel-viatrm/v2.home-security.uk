@@ -7,7 +7,7 @@ on:
       - "main"
     paths:
       - "homepage/**"
-      - ".github/workflows/homepage-deployment.yml"
+      - ".github/workflows/deploy-homepage.yml"
 
 # Deny all token permissions by default; the deploy step authenticates to
 # Cloudflare with its own API token, not the GitHub token.
@@ -30,10 +30,17 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Deploy static assets to Cloudflare Workers
-        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          apiToken: ${{ secrets.CF_API_KEY }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          workingDirectory: homepage
-          command: deploy
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: homepage
+        run: npm install
+
+      - name: Deploy static assets to Cloudflare Workers
+        working-directory: homepage
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_KEY }}
+        run: npx --yes wrangler@4 deploy --config wrangler.jsonc
