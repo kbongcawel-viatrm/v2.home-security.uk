@@ -13,9 +13,8 @@ The visual identity is a dark, technical security-operations theme with mint/cya
 - `index.html` — page structure, metadata, navigation, feature content and architecture gallery.
 - `styles.css` — responsive layout, typography, colors, cards, dashboard preview and diagram presentation.
 - `script.js` — mobile navigation state and current-year footer.
-- `assets/home-security-stack-banner.png` — platform banner.
-- `assets/network-ai-flow.png` — network traffic, Suricata, Fluent Bit, OpenObserve, Ollama and response recommendation flow.
-- `assets/cloudflare-aws-architecture.png` — Cloudflare edge, AWS architecture and CI/CD overview.
+- `assets/banner.png` — Home Security Stack banner artwork.
+- `assets/stack.jpeg` — Home Security Stack architecture / component diagram.
 - `worker/index.js` — Worker entry point forwarding requests to static asset binding.
 
 The dashboard panel is an illustrative UI preview, not live telemetry. OpenObserve and Prometheus links point to loopback addresses and therefore work only from the host where those services are running.
@@ -53,7 +52,7 @@ The deployment uses Wrangler v4 and the static assets directory configured in `w
 
 - Semantic sections and landmarks with accessible navigation labels.
 - Mobile menu exposes its expanded state through `aria-expanded`.
-- Diagram images include descriptive alternative text.
+- The two uploaded diagram images include descriptive alternative text and open at full size when selected.
 - Motion is reduced when the user enables `prefers-reduced-motion`.
 - Diagram cards are responsive and their full-resolution images can be opened separately.
 
